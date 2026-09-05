@@ -99,7 +99,20 @@ def _puede_ver(jugador_id):
 
 @app.errorhandler(413)
 def archivo_muy_grande(_error):
-    return jsonify({"error": "El archivo supera el limite de 5 MB"}), 413
+    return jsonify({"error": "El archivo supera el limite permitido"}), 413
+
+
+def _validar_perfil(data):
+    """Devuelve un mensaje de error si algun campo del perfil es invalido, o None."""
+    for campo in ("posicion_principal", "posicion_secundaria"):
+        v = data.get(campo)
+        if v and v not in db.POSICIONES:
+            return f"{campo} invalida. Opciones: {', '.join(db.POSICIONES)}"
+    if data.get("lateralidad") and data["lateralidad"] not in db.LATERALIDADES:
+        return f"lateralidad invalida. Opciones: {', '.join(db.LATERALIDADES)}"
+    if data.get("posicion_defensiva") and str(data["posicion_defensiva"]) not in db.POSICIONES_DEFENSIVAS:
+        return f"posicion_defensiva invalida. Opciones: {', '.join(db.POSICIONES_DEFENSIVAS)}"
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -122,12 +135,9 @@ def ruta_registro():
     if db.email_existe(data["email"]):
         return jsonify({"error": "Ya existe una cuenta con ese email"}), 409
 
-    for campo in ("posicion_principal", "posicion_secundaria"):
-        valor = data.get(campo)
-        if valor and valor not in db.POSICIONES:
-            return jsonify(
-                {"error": f"{campo} invalida. Opciones: {', '.join(db.POSICIONES)}"}
-            ), 400
+    err = _validar_perfil(data)
+    if err:
+        return jsonify({"error": err}), 400
 
     db.crear_usuario(
         email=data["email"],
@@ -140,6 +150,8 @@ def ruta_registro():
         posicion_principal=data.get("posicion_principal"),
         posicion_secundaria=data.get("posicion_secundaria"),
         numero_camiseta=data.get("numero_camiseta"),
+        lateralidad=data.get("lateralidad"),
+        posicion_defensiva=data.get("posicion_defensiva"),
     )
 
     usuario, token = db.autenticar(data["email"], data["password"])
@@ -173,12 +185,9 @@ def ruta_ver_perfil():
 @login_requerido
 def ruta_editar_perfil():
     data = request.get_json() or {}
-    for campo in ("posicion_principal", "posicion_secundaria"):
-        valor = data.get(campo)
-        if valor and valor not in db.POSICIONES:
-            return jsonify(
-                {"error": f"{campo} invalida. Opciones: {', '.join(db.POSICIONES)}"}
-            ), 400
+    err = _validar_perfil(data)
+    if err:
+        return jsonify({"error": err}), 400
     return jsonify(db.actualizar_perfil(g.usuario["id"], data))
 
 

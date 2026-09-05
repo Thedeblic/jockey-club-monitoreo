@@ -9,6 +9,15 @@ DB_NAME = "jockey.db"
 # Puestos validos para el handball (posicion principal / secundaria)
 POSICIONES = ["Arquero", "Lateral", "Central", "Extremo", "Pivote"]
 
+# Mano habil y rol defensivo
+LATERALIDADES = ["diestro", "zurdo"]
+POSICIONES_DEFENSIVAS = ["1", "2", "3"]
+POSICION_DEFENSIVA_LABEL = {
+    "1": "Defensor 1 (central)",
+    "2": "Defensor 2 (lateral)",
+    "3": "Defensor 3 (exterior)",
+}
+
 # Roles dentro de la app. El cuerpo tecnico se subdivide segun el manual
 # (red horizontal): cada sub-rol tiene sus permisos.
 ROL_JUGADOR = "jugador"
@@ -61,8 +70,10 @@ CAMPOS_EDITABLES = [
     "fecha_nacimiento",
     "altura_cm",
     "peso_kg",
+    "lateralidad",
     "posicion_principal",
     "posicion_secundaria",
+    "posicion_defensiva",
     "numero_camiseta",
 ]
 
@@ -98,12 +109,16 @@ def crear_tablas():
             posicion_principal TEXT,
             posicion_secundaria TEXT,
             numero_camiseta INTEGER,
+            lateralidad TEXT,
+            posicion_defensiva TEXT,
             foto TEXT,
             activo INTEGER DEFAULT 1,
             token TEXT,
             creado_en TEXT DEFAULT (datetime('now'))
         )
     """)
+    _agregar_columna(cursor, "usuarios", "lateralidad", "TEXT")
+    _agregar_columna(cursor, "usuarios", "posicion_defensiva", "TEXT")
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS sesiones (
@@ -264,6 +279,8 @@ def crear_usuario(
     posicion_principal=None,
     posicion_secundaria=None,
     numero_camiseta=None,
+    lateralidad=None,
+    posicion_defensiva=None,
     rol="jugador",
 ):
     conn = get_conexion()
@@ -271,8 +288,9 @@ def crear_usuario(
     cursor.execute(
         """INSERT INTO usuarios
            (email, password_hash, rol, nombre, apellido, fecha_nacimiento,
-            altura_cm, peso_kg, posicion_principal, posicion_secundaria, numero_camiseta)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            altura_cm, peso_kg, posicion_principal, posicion_secundaria, numero_camiseta,
+            lateralidad, posicion_defensiva)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             email.lower(),
             generate_password_hash(password),
@@ -285,6 +303,8 @@ def crear_usuario(
             posicion_principal,
             posicion_secundaria,
             numero_camiseta,
+            lateralidad,
+            posicion_defensiva,
         ),
     )
     conn.commit()

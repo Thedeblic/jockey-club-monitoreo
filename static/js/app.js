@@ -694,7 +694,7 @@ async function screenFichaJugador(params) {
       <div class="ficha-id">
         <div class="fh-num tnum">#${esc(j.numero_camiseta ?? "–")}</div>
         <h1>${esc(nombreJugador(j))}</h1>
-        <p>${esc(j.posicion_principal || "—")}${j.posicion_secundaria ? " / " + esc(j.posicion_secundaria) : ""} · ${esc(j.edad ?? "—")} años${j.altura_cm ? " · " + esc((j.altura_cm / 100).toFixed(2)) + " m" : ""}${j.peso_kg ? " · " + esc(j.peso_kg) + " kg" : ""}</p>
+        <p>${esc(j.posicion_principal || "—")}${j.posicion_secundaria ? " / " + esc(j.posicion_secundaria) : ""} · ${esc(j.edad ?? "—")} años${j.altura_cm ? " · " + esc((j.altura_cm / 100).toFixed(2)) + " m" : ""}${j.peso_kg ? " · " + esc(j.peso_kg) + " kg" : ""}${j.lateralidad ? " · " + esc(j.lateralidad) : ""}</p>
         <div style="margin-top:8px">${estadoPill}</div>
       </div>
       <div class="ficha-stats">
@@ -763,9 +763,19 @@ function fichaTabResumen(panel, j, carga) {
       </div>
       ${kpi("Lesiones activas", activas.length, activas.length ? "accent" : "")}
     </div>
-    <div class="card section-gap">
-      <h3>Carga diaria · ultimos 28 dias</h3>
-      <div style="height:230px"><canvas id="ch-fj-carga"></canvas></div>
+    <div class="grid cols-2 section-gap" style="align-items:start">
+      <div class="card">
+        <h3>Perfil deportivo</h3>
+        <div class="kv"><span class="muted">Posicion (ataque)</span><b>${esc(j.posicion_principal || "—")}${j.posicion_secundaria ? " / " + esc(j.posicion_secundaria) : ""}</b></div>
+        <div class="kv"><span class="muted">Posicion defensiva</span><b>${esc(POS_DEFENSIVA_LABEL[j.posicion_defensiva] || "—")}</b></div>
+        <div class="kv"><span class="muted">Mano habil</span><b>${esc(j.lateralidad || "—")}</b></div>
+        <div class="kv"><span class="muted">Altura / peso</span><b>${j.altura_cm ? (j.altura_cm / 100).toFixed(2) + " m" : "—"} · ${j.peso_kg ? j.peso_kg + " kg" : "—"}</b></div>
+        <div class="kv"><span class="muted">Numero</span><b>#${esc(j.numero_camiseta ?? "–")}</b></div>
+      </div>
+      <div class="card">
+        <h3>Carga diaria · ultimos 28 dias</h3>
+        <div style="height:200px"><canvas id="ch-fj-carga"></canvas></div>
+      </div>
     </div>
     ${hidra.length ? `<div class="card section-gap"><h3>Ultima hidratacion</h3>
       <div style="display:flex;align-items:flex-end;gap:14px">
@@ -1743,28 +1753,98 @@ function bindArchivosRTS(lesionId, recargar) {
    CONFIG / MI PERFIL
    ====================================================================== */
 
+const LATERALIDADES = ["diestro", "zurdo"];
+const POS_DEFENSIVA_LABEL = { "1": "Defensor 1 (central)", "2": "Defensor 2 (lateral)", "3": "Defensor 3 (exterior)" };
+
 async function screenConfig() {
-  const titulo = state.perfil.rol === "cuerpo_tecnico" ? "Configuracion" : "Mi perfil";
+  const esJugador = state.perfil.rol === "jugador";
+  const titulo = esJugador ? "Mi perfil" : "Configuracion";
   crumbs(titulo);
   const p = state.perfil;
-  view().innerHTML = pageHead(titulo, "Tus datos") + `
-    <div class="card" style="max-width:520px">
-      <div style="display:flex;gap:16px;align-items:center;margin-bottom:16px">
-        <span class="avatar" style="width:56px;height:56px;font-size:1.1rem">${esc(iniciales(p.nombre, p.apellido))}</span>
-        <div>
+  const opt = (arr, val, extra = "") => `<option value=""${!val ? " selected" : ""}>—</option>` +
+    arr.map(o => `<option value="${esc(o.v ?? o)}"${(o.v ?? o) == val ? " selected" : ""}>${esc(o.l ?? o)}</option>`).join("") + extra;
+
+  view().innerHTML = pageHead(titulo, esJugador ? "Tus datos deportivos" : "Tu cuenta") + `
+    <div class="card" style="max-width:560px">
+      <div style="display:flex;gap:16px;align-items:center;margin-bottom:18px">
+        <span class="avatar" id="cfg-av" style="width:64px;height:64px;font-size:1.2rem;background-image:url('/api/jugadores/${p.id}/foto');background-size:cover">${p.foto ? "" : esc(iniciales(p.nombre, p.apellido))}</span>
+        <div style="flex:1">
           <div style="font-family:'Barlow Semi Condensed';font-weight:700;font-size:1.3rem">${esc(nombreJugador(p))}</div>
           <div class="muted">${esc(p.email)} · ${esc(ROL_LABEL[p.rol] || p.rol)}</div>
         </div>
+        ${esJugador ? `<button class="btn ghost" id="cfg-foto-btn" style="padding:7px 12px;font-size:.82rem">Cambiar foto</button>
+          <input type="file" id="cfg-foto" accept=".png,.jpg,.jpeg,.webp" hidden>` : ""}
       </div>
-      ${!esCT() ? `
-        <div class="kv"><span class="muted">Edad</span><b>${esc(p.edad ?? "—")}</b></div>
-        <div class="kv"><span class="muted">Altura</span><b>${esc(p.altura_cm ?? "—")} cm</b></div>
-        <div class="kv"><span class="muted">Peso de referencia</span><b>${esc(p.peso_kg ?? "—")} kg</b></div>
-        <div class="kv"><span class="muted">Posicion principal</span><b>${esc(p.posicion_principal ?? "—")}</b></div>
-        <div class="kv"><span class="muted">Posicion secundaria</span><b>${esc(p.posicion_secundaria ?? "—")}</b></div>
-        <div class="kv"><span class="muted">Numero</span><b>${esc(p.numero_camiseta ?? "—")}</b></div>
-      ` : `<p class="muted">La edicion de cuentas y roles llega en el proximo paso.</p>`}
+
+      ${esJugador ? `
+      <form id="cfg-form" class="form-grid">
+        <div class="field"><label>Nombre</label><input id="c-nombre" value="${esc(p.nombre || "")}"></div>
+        <div class="field"><label>Apellido</label><input id="c-apellido" value="${esc(p.apellido || "")}"></div>
+        <div class="field"><label>Fecha de nacimiento</label><input id="c-nac" type="date" value="${esc(p.fecha_nacimiento || "")}"></div>
+        <div class="field"><label>Numero de camiseta</label><input id="c-num" type="number" min="1" value="${esc(p.numero_camiseta ?? "")}"></div>
+        <div class="field"><label>Altura (cm)</label><input id="c-altura" type="number" min="1" value="${esc(p.altura_cm ?? "")}"></div>
+        <div class="field"><label>Peso de referencia (kg)</label><input id="c-peso" type="number" step="0.1" min="1" value="${esc(p.peso_kg ?? "")}"></div>
+        <div class="field"><label>Mano habil</label><select id="c-lat">${opt(LATERALIDADES, p.lateralidad)}</select></div>
+        <div class="field"><label>Posicion defensiva</label>
+          <select id="c-def">${opt([{ v: "1", l: "Defensor 1 (central)" }, { v: "2", l: "Defensor 2 (lateral)" }, { v: "3", l: "Defensor 3 (exterior)" }], p.posicion_defensiva)}</select>
+        </div>
+        <div class="field"><label>Posicion principal (ataque)</label><select id="c-pos1">${opt(POSICIONES, p.posicion_principal)}</select></div>
+        <div class="field"><label>Posicion secundaria</label><select id="c-pos2">${opt(POSICIONES, p.posicion_secundaria)}</select></div>
+        <div class="field full"><button class="btn" type="submit">Guardar cambios</button></div>
+        <div class="field full"><div id="cfg-msg" class="notice ok" hidden></div></div>
+      </form>
+      ` : `<p class="muted">La edicion de cuentas y roles del cuerpo tecnico llega en el proximo paso.</p>`}
     </div>`;
+
+  if (!esJugador) return;
+
+  $("#cfg-form").addEventListener("submit", async ev => {
+    ev.preventDefault();
+    const msg = $("#cfg-msg");
+    const num = v => (v === "" ? null : +v);
+    try {
+      const r = await API.put("/perfil", {
+        nombre: $("#c-nombre").value.trim(),
+        apellido: $("#c-apellido").value.trim(),
+        fecha_nacimiento: $("#c-nac").value || null,
+        numero_camiseta: num($("#c-num").value),
+        altura_cm: num($("#c-altura").value),
+        peso_kg: num($("#c-peso").value),
+        lateralidad: $("#c-lat").value || null,
+        posicion_defensiva: $("#c-def").value || null,
+        posicion_principal: $("#c-pos1").value || null,
+        posicion_secundaria: $("#c-pos2").value || null,
+      });
+      state.perfil = r;
+      $("#who-name").textContent = `${nombreJugador(r)} · ${ROL_LABEL[r.rol] || r.rol}`;
+      msg.className = "notice ok";
+      msg.textContent = "Perfil actualizado.";
+      msg.hidden = false;
+    } catch (e) {
+      msg.className = "notice err";
+      msg.textContent = e.message;
+      msg.hidden = false;
+    }
+  });
+
+  const fbtn = $("#cfg-foto-btn"), finput = $("#cfg-foto");
+  fbtn.addEventListener("click", () => finput.click());
+  finput.addEventListener("change", async () => {
+    const file = finput.files[0];
+    if (!file) return;
+    const fd = new FormData();
+    fd.append("foto", file);
+    try {
+      const r = await API.postForm("/perfil/foto", fd);
+      state.perfil = r;
+      $("#cfg-av").style.backgroundImage = `url('/api/jugadores/${r.id}/foto?t=${Date.now()}')`;
+      $("#cfg-av").textContent = "";
+      $("#who-av").textContent = "";
+      const m = $("#cfg-msg"); m.className = "notice ok"; m.textContent = "Foto actualizada."; m.hidden = false;
+    } catch (e) {
+      const m = $("#cfg-msg"); m.className = "notice err"; m.textContent = e.message; m.hidden = false;
+    }
+  });
 }
 
 /* ======================================================================

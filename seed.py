@@ -21,17 +21,18 @@ STAFF = [
     ("fisio@jockey.com", "Lucia", "Sosa", "fisioterapeuta"),
 ]
 
+# nombre, apellido, nacimiento, nro, pos_ataque, pos_secundaria, altura, peso, mano, pos_defensiva
 PLANTEL = [
-    ("Tomas", "Fernandez", "1995-04-12", 3, "Central", "Lateral", 182, 84),
-    ("Ignacio", "Herrera", "1998-09-03", 7, "Lateral", "Central", 188, 89),
-    ("Facundo", "Gomez", "1999-01-22", 10, "Central", "Lateral", 185, 86),
-    ("Mateo", "Torres", "1997-06-30", 5, "Pivote", None, 193, 98),
-    ("Juan Cruz", "Diaz", "2000-11-15", 12, "Arquero", None, 190, 90),
-    ("Lautaro", "Silva", "2001-03-08", 9, "Extremo", "Lateral", 179, 78),
-    ("Agustin", "Peralta", "1996-12-01", 18, "Extremo", None, 181, 80),
-    ("Nicolas", "Roldan", "1994-07-19", 4, "Central", "Pivote", 189, 95),
-    ("Santiago", "Ruiz", "2002-02-27", 8, "Lateral", "Extremo", 186, 83),
-    ("Bruno", "Molina", "1999-08-14", 21, "Pivote", "Central", 195, 101),
+    ("Tomas", "Fernandez", "1995-04-12", 3, "Central", "Lateral", 182, 84, "diestro", "1"),
+    ("Ignacio", "Herrera", "1998-09-03", 7, "Lateral", "Central", 188, 89, "zurdo", "2"),
+    ("Facundo", "Gomez", "1999-01-22", 10, "Central", "Lateral", 185, 86, "diestro", "1"),
+    ("Mateo", "Torres", "1997-06-30", 5, "Pivote", None, 193, 98, "diestro", "1"),
+    ("Juan Cruz", "Diaz", "2000-11-15", 12, "Arquero", None, 190, 90, "diestro", None),
+    ("Lautaro", "Silva", "2001-03-08", 9, "Extremo", "Lateral", 179, 78, "zurdo", "3"),
+    ("Agustin", "Peralta", "1996-12-01", 18, "Extremo", None, 181, 80, "diestro", "3"),
+    ("Nicolas", "Roldan", "1994-07-19", 4, "Central", "Pivote", 189, 95, "diestro", "1"),
+    ("Santiago", "Ruiz", "2002-02-27", 8, "Lateral", "Extremo", 186, 83, "zurdo", "2"),
+    ("Bruno", "Molina", "1999-08-14", 21, "Pivote", "Central", 195, 101, "diestro", "1"),
 ]
 
 
@@ -63,7 +64,7 @@ def main():
     print(f"Staff del cuerpo tecnico: {len(STAFF)} cuentas (pass: {PASS_CT})")
 
     ids = []
-    for nombre, apellido, nac, num, pos1, pos2, altura, peso in PLANTEL:
+    for nombre, apellido, nac, num, pos1, pos2, altura, peso, mano, defensa in PLANTEL:
         email = f"{nombre}.{apellido}@jockey.com".lower().replace(" ", "")
         if ya_existe(email):
             jugador = next(
@@ -76,6 +77,7 @@ def main():
             email=email, password="jugador2025", nombre=nombre, apellido=apellido,
             fecha_nacimiento=nac, altura_cm=altura, peso_kg=peso,
             posicion_principal=pos1, posicion_secundaria=pos2, numero_camiseta=num,
+            lateralidad=mano, posicion_defensiva=defensa,
         )
         ids.append(jid)
     print(f"Jugadores en el plantel: {len(ids)}")
