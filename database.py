@@ -323,6 +323,9 @@ def autenticar(email, password):
     if fila is None or not check_password_hash(fila["password_hash"], password):
         conn.close()
         return None, None
+    if not fila["activo"]:
+        conn.close()
+        return None, None
 
     token = secrets.token_hex(32)
     conn.execute("UPDATE usuarios SET token = ? WHERE id = ?", (token, fila["id"]))
@@ -377,6 +380,57 @@ def set_foto(usuario_id, nombre_archivo):
     )
     conn.commit()
     conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Gestion de cuentas (solo rol 'cuerpo_tecnico' = admin)
+# ---------------------------------------------------------------------------
+
+
+def generar_password():
+    return secrets.token_urlsafe(9)  # ~12 caracteres seguros
+
+
+def listar_usuarios():
+    conn = get_conexion()
+    filas = conn.execute(
+        "SELECT * FROM usuarios ORDER BY (rol = 'jugador'), rol, apellido, nombre"
+    ).fetchall()
+    conn.close()
+    return [_armar_usuario(f) for f in filas]
+
+
+def actualizar_cuenta(usuario_id, datos):
+    cambios = {}
+    if datos.get("rol") in ROLES:
+        cambios["rol"] = datos["rol"]
+    if "activo" in datos:
+        cambios["activo"] = 1 if datos["activo"] else 0
+    if not cambios:
+        return obtener_usuario(usuario_id)
+    asignaciones = ", ".join(f"{c} = ?" for c in cambios)
+    conn = get_conexion()
+    conn.execute(
+        f"UPDATE usuarios SET {asignaciones} WHERE id = ?",
+        list(cambios.values()) + [usuario_id],
+    )
+    if cambios.get("activo") == 0:
+        conn.execute("UPDATE usuarios SET token = NULL WHERE id = ?", (usuario_id,))
+    conn.commit()
+    conn.close()
+    return obtener_usuario(usuario_id)
+
+
+def resetear_password(usuario_id):
+    nueva = generar_password()
+    conn = get_conexion()
+    conn.execute(
+        "UPDATE usuarios SET password_hash = ?, token = NULL WHERE id = ?",
+        (generate_password_hash(nueva), usuario_id),
+    )
+    conn.commit()
+    conn.close()
+    return nueva
 
 
 # ---------------------------------------------------------------------------

@@ -412,6 +412,17 @@ input, select, textarea, button { font: inherit; color: inherit; }
 .track-l { display: flex; justify-content: space-between; font-size: .74rem; color: var(--ink-dim); }
 .track-l, .track-l span { font-variant-numeric: tabular-nums; }
 
+/* --- password temporal --- */
+.pass-box {
+  margin-top: 14px; padding: 14px; border-radius: var(--radius-sm);
+  background: var(--surface-2); border: 1px dashed var(--line);
+}
+.pass-box code {
+  font-family: "Archivo Narrow", ui-monospace, monospace;
+  font-size: 1.35rem; font-weight: 700; letter-spacing: .04em; color: var(--ink);
+  user-select: all; word-break: break-all;
+}
+
 /* --- alertas del CT --- */
 .alerta-list { display: flex; flex-direction: column; }
 .alerta-item {

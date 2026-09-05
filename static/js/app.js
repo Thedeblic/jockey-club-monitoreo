@@ -52,7 +52,7 @@ const NAV = {
   ],
   cuerpo_tecnico: [
     ["inicio", "Inicio"], ["plantel", "Plantel"], ["carga", "Carga"], ["lesiones", "Lesiones"], ["registro", "Registro"],
-    ["sep"], ["calendario", "Calendario"], ["informes", "Informes"], ["config", "Configuracion"],
+    ["sep"], ["calendario", "Calendario"], ["informes", "Informes"], ["config", "Cuentas"],
   ],
   jugador: [
     ["inicio", "Inicio"], ["micarga", "Mi carga"], ["registro", "Registrar sesion"],
@@ -1763,6 +1763,7 @@ const LATERALIDADES = ["diestro", "zurdo"];
 const POS_DEFENSIVA_LABEL = { "1": "Defensor 1 (central)", "2": "Defensor 2 (lateral)", "3": "Defensor 3 (exterior)" };
 
 async function screenConfig() {
+  if (state.perfil.rol === "cuerpo_tecnico") return screenCuentas();
   const esJugador = state.perfil.rol === "jugador";
   const titulo = esJugador ? "Mi perfil" : "Configuracion";
   crumbs(titulo);
@@ -1851,6 +1852,155 @@ async function screenConfig() {
       const m = $("#cfg-msg"); m.className = "notice err"; m.textContent = e.message; m.hidden = false;
     }
   });
+}
+
+/* ---- gestion de cuentas (admin) ---- */
+
+const ROLES_ASIGNABLES = ["jugador", "entrenador", "preparador_fisico", "medico", "fisioterapeuta", "cuerpo_tecnico"];
+
+async function copiar(texto, btn) {
+  try {
+    await navigator.clipboard.writeText(texto);
+    if (btn) { const t = btn.textContent; btn.textContent = "Copiado ✓"; setTimeout(() => (btn.textContent = t), 1500); }
+  } catch (e) { alert("Copiala a mano: " + texto); }
+}
+
+function mostrarPassTemporal(nombre, pass) {
+  const bg = document.createElement("div");
+  bg.className = "modal-bg";
+  bg.innerHTML = `<div class="modal" style="max-width:400px;text-align:center">
+    <h3>Contrasena temporal</h3>
+    <p class="muted" style="font-size:.88rem">Para <b>${esc(nombre)}</b>. Pasasela por un canal seguro; al entrar puede cambiarla.</p>
+    <div class="pass-box"><code>${esc(pass)}</code></div>
+    <div class="modal-actions" style="justify-content:center;margin-top:14px">
+      <button class="btn ghost" id="pt-copiar">Copiar</button>
+      <button class="btn" id="pt-ok">Entendido</button>
+    </div>
+  </div>`;
+  document.body.appendChild(bg);
+  bg.addEventListener("click", e => { if (e.target === bg) bg.remove(); });
+  $("#pt-ok", bg).onclick = () => bg.remove();
+  $("#pt-copiar", bg).onclick = e => copiar(pass, e.target);
+}
+
+async function screenCuentas() {
+  crumbs("Configuracion", "Cuentas y roles");
+  const usuarios = await API.get("/usuarios");
+  const staff = usuarios.filter(u => u.rol !== "jugador");
+  const jugadores = usuarios.filter(u => u.rol === "jugador");
+
+  const fila = u => `<tr data-uid="${u.id}">
+    <td><div class="cell-player">
+      <span class="avatar">${esc(iniciales(u.nombre, u.apellido))}</span>
+      <div><div class="cp-name">${esc(nombreJugador(u))}${u.id === state.perfil.id ? ' <span class="muted" style="font-size:.75rem">(vos)</span>' : ""}</div>
+      <div class="cp-pos" style="text-transform:none;letter-spacing:0">${esc(u.email)}</div></div>
+    </div></td>
+    <td>
+      ${u.id === state.perfil.id
+        ? `<span class="chip gris">${esc(ROL_LABEL[u.rol] || u.rol)}</span>`
+        : `<select class="sel-rol" style="padding:5px 8px;font-size:.84rem">${ROLES_ASIGNABLES.map(r => `<option value="${r}"${r === u.rol ? " selected" : ""}>${esc(ROL_LABEL[r])}</option>`).join("")}</select>`}
+    </td>
+    <td style="text-align:center">
+      <span class="chip ${u.activo ? "verde" : "gris"}">${u.activo ? "Activa" : "Inactiva"}</span>
+    </td>
+    <td style="text-align:right;white-space:nowrap">
+      ${u.id === state.perfil.id ? "" : `
+        <button class="lnk" data-accion="pass">Reset clave</button>
+        <button class="lnk ${u.activo ? "danger" : ""}" data-accion="activo">${u.activo ? "Desactivar" : "Activar"}</button>`}
+    </td>
+  </tr>`;
+
+  view().innerHTML = pageHead("Cuentas y roles", "Alta de usuarios y asignacion de roles") + `
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <h3 style="margin:0">Cuerpo tecnico</h3>
+        <button class="btn" id="btn-nueva-cuenta">+ Nueva cuenta</button>
+      </div>
+      <div class="table-wrap"><table class="table">
+        <thead><tr><th>Persona</th><th>Rol</th><th style="text-align:center">Estado</th><th></th></tr></thead>
+        <tbody id="tb-staff">${staff.map(fila).join("")}</tbody>
+      </table></div>
+    </div>
+    <div class="card section-gap">
+      <h3>Jugadores</h3>
+      <div class="table-wrap"><table class="table">
+        <thead><tr><th>Persona</th><th>Rol</th><th style="text-align:center">Estado</th><th></th></tr></thead>
+        <tbody id="tb-jug">${jugadores.map(fila).join("")}</tbody>
+      </table></div>
+    </div>
+    <p class="muted" style="font-size:.8rem;margin-top:10px">Desactivar una cuenta la saca del plantel y cierra su sesion, sin borrar el historial.</p>`;
+
+  const recargar = () => screenCuentas();
+
+  view().querySelectorAll("tr[data-uid]").forEach(tr => {
+    const uid = +tr.dataset.uid;
+    const sel = tr.querySelector(".sel-rol");
+    if (sel) sel.addEventListener("change", async () => {
+      try { await API.put("/usuarios/" + uid, { rol: sel.value }); }
+      catch (e) { alert(e.message); recargar(); }
+    });
+    tr.querySelectorAll("[data-accion]").forEach(b => b.addEventListener("click", async () => {
+      const nombre = tr.querySelector(".cp-name").textContent.trim();
+      try {
+        if (b.dataset.accion === "pass") {
+          if (!confirm(`Generar una contrasena nueva para ${nombre}?`)) return;
+          const r = await API.post(`/usuarios/${uid}/password`);
+          mostrarPassTemporal(nombre, r.password_temporal);
+        } else {
+          const activar = b.textContent.trim() === "Activar";
+          if (!activar && !confirm(`Desactivar la cuenta de ${nombre}?`)) return;
+          await API.put("/usuarios/" + uid, { activo: activar });
+          recargar();
+        }
+      } catch (e) { alert(e.message); }
+    }));
+  });
+
+  $("#btn-nueva-cuenta").addEventListener("click", () => modalNuevaCuenta(recargar));
+}
+
+function modalNuevaCuenta(recargar) {
+  const bg = document.createElement("div");
+  bg.className = "modal-bg";
+  bg.innerHTML = `<div class="modal">
+    <h3>Nueva cuenta</h3>
+    <div class="form-grid">
+      <div class="field"><label>Nombre</label><input id="nc-nombre"></div>
+      <div class="field"><label>Apellido</label><input id="nc-apellido"></div>
+      <div class="field full"><label>Email</label><input id="nc-email" type="email"></div>
+      <div class="field"><label>Rol</label><select id="nc-rol">${ROLES_ASIGNABLES.map(r => `<option value="${r}">${esc(ROL_LABEL[r])}</option>`).join("")}</select></div>
+      <div class="field"><label>Contrasena inicial</label><input id="nc-pass" placeholder="se genera una si la dejas vacia"></div>
+      <div class="field full"><span class="hint">Si es jugador, despues completa su altura, peso y posiciones desde "Mi perfil".</span></div>
+      <div class="field full"><div id="nc-msg" class="notice err" hidden></div></div>
+    </div>
+    <div class="modal-actions">
+      <span class="spacer"></span>
+      <button class="btn ghost" id="nc-cancel">Cancelar</button>
+      <button class="btn" id="nc-save">Crear cuenta</button>
+    </div>
+  </div>`;
+  document.body.appendChild(bg);
+  const cerrar = () => bg.remove();
+  bg.addEventListener("click", e => { if (e.target === bg) cerrar(); });
+  $("#nc-cancel", bg).onclick = cerrar;
+  $("#nc-save", bg).onclick = async () => {
+    const msg = $("#nc-msg", bg);
+    try {
+      const r = await API.post("/usuarios", {
+        nombre: $("#nc-nombre", bg).value.trim(),
+        apellido: $("#nc-apellido", bg).value.trim(),
+        email: $("#nc-email", bg).value.trim(),
+        rol: $("#nc-rol", bg).value,
+        password: $("#nc-pass", bg).value.trim() || null,
+      });
+      cerrar();
+      recargar();
+      if (r.password_temporal) mostrarPassTemporal(nombreJugador(r.usuario), r.password_temporal);
+    } catch (e) {
+      msg.textContent = e.message;
+      msg.hidden = false;
+    }
+  };
 }
 
 /* ======================================================================

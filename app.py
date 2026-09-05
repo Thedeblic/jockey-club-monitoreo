@@ -92,6 +92,14 @@ def solo_calendario(vista):
     return _con_usuario(vista, check)
 
 
+def solo_admin(vista):
+    """El rol 'cuerpo_tecnico' funciona como administrador: gestiona cuentas y roles."""
+    def check(u):
+        if u["rol"] != "cuerpo_tecnico":
+            return jsonify({"error": "Solo un administrador gestiona las cuentas"}), 403
+    return _con_usuario(vista, check)
+
+
 def _puede_ver(jugador_id):
     """Un jugador solo se ve a si mismo; el CT ve a cualquiera."""
     return db.es_ct(g.usuario["rol"]) or g.usuario["id"] == jugador_id
@@ -208,6 +216,77 @@ def ruta_subir_foto():
     archivo.save(os.path.join(UPLOAD_DIR, nombre))
     db.set_foto(g.usuario["id"], nombre)
     return jsonify(db.obtener_usuario(g.usuario["id"]))
+
+
+# ---------------------------------------------------------------------------
+# Gestion de cuentas (administrador)
+# ---------------------------------------------------------------------------
+
+
+@app.route("/api/usuarios", methods=["GET"])
+@solo_admin
+def ruta_listar_usuarios():
+    return jsonify(db.listar_usuarios())
+
+
+@app.route("/api/usuarios", methods=["POST"])
+@solo_admin
+def ruta_crear_cuenta():
+    data = request.get_json() or {}
+    for campo in ("email", "nombre", "apellido", "rol"):
+        if not data.get(campo):
+            return jsonify({"error": f"Falta el campo: {campo}"}), 400
+    if data["rol"] not in db.ROLES:
+        return jsonify({"error": f"Rol invalido. Opciones: {', '.join(db.ROLES)}"}), 400
+    if db.email_existe(data["email"]):
+        return jsonify({"error": "Ya existe una cuenta con ese email"}), 409
+
+    err = _validar_perfil(data)
+    if err:
+        return jsonify({"error": err}), 400
+
+    password_dado = (data.get("password") or "").strip()
+    if password_dado and len(password_dado) < 8:
+        return jsonify({"error": "La contrasena debe tener al menos 8 caracteres"}), 400
+    password = password_dado or db.generar_password()
+
+    uid = db.crear_usuario(
+        email=data["email"],
+        password=password,
+        nombre=data["nombre"],
+        apellido=data["apellido"],
+        rol=data["rol"],
+        fecha_nacimiento=data.get("fecha_nacimiento"),
+        numero_camiseta=data.get("numero_camiseta"),
+        posicion_principal=data.get("posicion_principal"),
+        lateralidad=data.get("lateralidad"),
+        posicion_defensiva=data.get("posicion_defensiva"),
+    )
+    return jsonify({
+        "usuario": db.obtener_usuario(uid),
+        "password_temporal": None if password_dado else password,
+    }), 201
+
+
+@app.route("/api/usuarios/<int:usuario_id>", methods=["PUT"])
+@solo_admin
+def ruta_editar_cuenta(usuario_id):
+    if usuario_id == g.usuario["id"]:
+        return jsonify({"error": "No podes cambiar tu propio rol ni desactivarte"}), 400
+    if db.obtener_usuario(usuario_id) is None:
+        return jsonify({"error": "Cuenta no encontrada"}), 404
+    data = request.get_json() or {}
+    if "rol" in data and data["rol"] not in db.ROLES:
+        return jsonify({"error": "Rol invalido"}), 400
+    return jsonify(db.actualizar_cuenta(usuario_id, data))
+
+
+@app.route("/api/usuarios/<int:usuario_id>/password", methods=["POST"])
+@solo_admin
+def ruta_reset_password(usuario_id):
+    if db.obtener_usuario(usuario_id) is None:
+        return jsonify({"error": "Cuenta no encontrada"}), 404
+    return jsonify({"password_temporal": db.resetear_password(usuario_id)})
 
 
 @app.route("/api/jugadores/<int:jugador_id>/foto", methods=["GET"])
