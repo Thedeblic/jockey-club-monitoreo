@@ -1602,11 +1602,23 @@ async function screenLesionRTS(params) {
 
     <div class="card section-gap">
       <div style="display:flex;justify-content:space-between;align-items:center">
+        <h3 style="margin:0">Estudios y archivos</h3>
+        ${puede ? `<button class="btn ghost" id="rts-subir" style="padding:7px 12px;font-size:.82rem">+ Subir archivo</button>
+          <input type="file" id="rts-file" accept=".pdf,.png,.jpg,.jpeg,.webp" hidden>` : ""}
+      </div>
+      <div id="rts-archivos" style="margin-top:12px">${renderArchivosRTS(l.archivos)}</div>
+      <p class="muted" style="font-size:.76rem;margin:10px 0 0">PDF o imagen (RM, ecografia, laboratorio), hasta 15 MB.</p>
+    </div>
+
+    <div class="card section-gap">
+      <div style="display:flex;justify-content:space-between;align-items:center">
         <h3 style="margin:0">Historia del caso</h3>
         ${puede ? `<button class="btn ghost" id="rts-nota" style="padding:7px 12px;font-size:.82rem">+ Agregar nota</button>` : ""}
       </div>
       <div id="rts-timeline" style="margin-top:12px">${renderTimelineRTS(l.timeline)}</div>
     </div>`;
+
+  bindArchivosRTS(id, () => screenLesionRTS([String(id)]));
 
   if (!puede) return;
 
@@ -1648,6 +1660,83 @@ function renderTimelineRTS(timeline) {
     </div>
     <div class="tl-texto">${t.tipo === "estado" ? `<b>${esc(t.texto || ESTADO_RTS_LABEL[t.estado] || "")}</b>` : esc(t.texto || "")}</div>
   </div>`).join("")}</div>`;
+}
+
+/* ---- archivos adjuntos a la lesion ---- */
+
+function fmtTamano(b) {
+  if (!b) return "";
+  if (b < 1024) return b + " B";
+  if (b < 1048576) return Math.max(1, Math.round(b / 1024)) + " KB";
+  return (b / 1048576).toFixed(1) + " MB";
+}
+
+function renderArchivosRTS(archivos) {
+  if (!archivos || !archivos.length) return `<p class="muted" style="font-size:.88rem">Todavia no hay estudios cargados.</p>`;
+  const puede = esLesiones();
+  return `<div class="arch-list">${archivos.map(a => `<div class="arch-item">
+    <span class="arch-ic">${a.tipo === "pdf" ? "PDF" : "IMG"}</span>
+    <div class="arch-main">
+      <div class="arch-t">${esc(a.titulo || a.nombre_original)}</div>
+      <div class="arch-sub">${esc(fmtTamano(a.tamano))} · ${esc(a.subido_por_nombre || "—")} · ${esc((a.subido_en || "").slice(0, 10))}</div>
+    </div>
+    <div class="arch-act">
+      <button class="lnk" data-ver="${a.id}" data-tipo="${esc(a.tipo)}" data-nom="${esc(a.nombre_original)}">Abrir</button>
+      <button class="lnk" data-baj="${a.id}" data-nom="${esc(a.nombre_original)}">Descargar</button>
+      ${puede ? `<button class="lnk danger" data-borrar="${a.id}">Borrar</button>` : ""}
+    </div>
+  </div>`).join("")}</div>`;
+}
+
+async function abrirArchivo(id, descargar, nombre) {
+  try {
+    const blob = await API.blob("/archivo/" + id + (descargar ? "?descargar=1" : ""));
+    const url = URL.createObjectURL(blob);
+    if (descargar) {
+      const a = document.createElement("a");
+      a.href = url; a.download = nombre || "archivo";
+      document.body.appendChild(a); a.click(); a.remove();
+    } else {
+      window.open(url, "_blank");
+    }
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  } catch (e) {
+    alert(e.message);
+  }
+}
+
+function bindArchivosRTS(lesionId, recargar) {
+  const cont = $("#rts-archivos");
+  if (cont) {
+    cont.querySelectorAll("[data-ver]").forEach(b =>
+      b.addEventListener("click", () => abrirArchivo(b.dataset.ver, false, b.dataset.nom)));
+    cont.querySelectorAll("[data-baj]").forEach(b =>
+      b.addEventListener("click", () => abrirArchivo(b.dataset.baj, true, b.dataset.nom)));
+    cont.querySelectorAll("[data-borrar]").forEach(b =>
+      b.addEventListener("click", async () => {
+        if (!confirm("Borrar este archivo?")) return;
+        await API.del(`/lesion/${lesionId}/archivo/${b.dataset.borrar}`);
+        recargar();
+      }));
+  }
+  const btn = $("#rts-subir"), input = $("#rts-file");
+  if (btn && input) {
+    btn.addEventListener("click", () => input.click());
+    input.addEventListener("change", async () => {
+      const file = input.files[0];
+      if (!file) return;
+      const titulo = prompt("Titulo del estudio (opcional):", file.name.replace(/\.[^.]+$/, "")) || "";
+      const fd = new FormData();
+      fd.append("archivo", file);
+      fd.append("titulo", titulo);
+      try {
+        await API.postForm(`/lesion/${lesionId}/archivo`, fd);
+        recargar();
+      } catch (e) {
+        alert(e.message);
+      }
+    });
+  }
 }
 
 /* ======================================================================

@@ -38,4 +38,12 @@ const API = {
   put(p, b) { return this.req("PUT", p, b); },
   del(p) { return this.req("DELETE", p); },
   postForm(p, f) { return this.req("POST", p, f, true); },
+
+  async blob(path) {
+    const headers = {};
+    if (this.token) headers["Authorization"] = "Bearer " + this.token;
+    const res = await fetch("/api" + path, { headers });
+    if (!res.ok) throw new Error("No se pudo abrir el archivo (" + res.status + ")");
+    return res.blob();
+  },
 };

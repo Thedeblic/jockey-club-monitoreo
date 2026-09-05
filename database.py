@@ -184,6 +184,22 @@ def crear_tablas():
     """)
 
     cursor.execute("""
+        CREATE TABLE IF NOT EXISTS lesion_archivos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            lesion_id INTEGER NOT NULL,
+            nombre_archivo TEXT NOT NULL,
+            nombre_original TEXT NOT NULL,
+            titulo TEXT,
+            tipo TEXT,
+            tamano INTEGER,
+            subido_por INTEGER,
+            subido_por_nombre TEXT,
+            subido_en TEXT DEFAULT (datetime('now')),
+            FOREIGN KEY (lesion_id) REFERENCES lesiones (id)
+        )
+    """)
+
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS eventos (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             fecha TEXT NOT NULL,
@@ -872,6 +888,54 @@ def notas_de_lesion(lesion_id):
     ).fetchall()
     conn.close()
     return [dict(f) for f in filas]
+
+
+def insertar_archivo_lesion(lesion_id, nombre_archivo, nombre_original, titulo, tipo, tamano, autor):
+    conn = get_conexion()
+    cursor = conn.cursor()
+    cursor.execute(
+        """INSERT INTO lesion_archivos
+           (lesion_id, nombre_archivo, nombre_original, titulo, tipo, tamano, subido_por, subido_por_nombre)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            lesion_id, nombre_archivo, nombre_original, titulo, tipo, tamano,
+            autor["id"] if autor else None,
+            f'{autor["nombre"]} {autor["apellido"]}'.strip() if autor else None,
+        ),
+    )
+    conn.commit()
+    nuevo_id = cursor.lastrowid
+    conn.close()
+    return nuevo_id
+
+
+def archivos_de_lesion(lesion_id):
+    conn = get_conexion()
+    filas = conn.execute(
+        "SELECT * FROM lesion_archivos WHERE lesion_id = ? ORDER BY subido_en DESC",
+        (lesion_id,),
+    ).fetchall()
+    conn.close()
+    return [dict(f) for f in filas]
+
+
+def obtener_archivo_lesion(archivo_id):
+    conn = get_conexion()
+    fila = conn.execute(
+        "SELECT * FROM lesion_archivos WHERE id = ?", (archivo_id,)
+    ).fetchone()
+    conn.close()
+    return dict(fila) if fila else None
+
+
+def eliminar_archivo_lesion(archivo_id):
+    fila = obtener_archivo_lesion(archivo_id)
+    if fila:
+        conn = get_conexion()
+        conn.execute("DELETE FROM lesion_archivos WHERE id = ?", (archivo_id,))
+        conn.commit()
+        conn.close()
+    return fila
 
 
 def listar_lesiones(solo_activas=False):

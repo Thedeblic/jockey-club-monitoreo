@@ -477,6 +477,31 @@ input, select, textarea, button { font: inherit; color: inherit; }
 .rts-step.now .rts-lbl { color: var(--ink); font-weight: 600; }
 .rts-line { flex: 0 0 16px; height: 1.5px; background: var(--line); }
 
+/* --- archivos adjuntos --- */
+.arch-list { display: flex; flex-direction: column; }
+.arch-item {
+  display: flex; align-items: center; gap: 12px;
+  padding: 11px 0; border-top: 1px solid var(--line);
+}
+.arch-item:first-child { border-top: 0; }
+.arch-ic {
+  width: 38px; height: 38px; border-radius: 8px; flex: 0 0 auto;
+  background: var(--surface-2); display: grid; place-items: center;
+  font-family: "Barlow Semi Condensed"; font-weight: 700; font-size: .68rem;
+  letter-spacing: .04em; color: var(--ink-dim);
+}
+.arch-main { flex: 1; min-width: 0; }
+.arch-t { font-weight: 600; font-size: .92rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.arch-sub { font-size: .76rem; color: var(--ink-dim); }
+.arch-act { display: flex; gap: 12px; flex: 0 0 auto; }
+.lnk {
+  background: none; border: 0; color: var(--ink-dim); cursor: pointer;
+  font-size: .82rem; padding: 0; text-decoration: underline; text-underline-offset: 2px;
+}
+.lnk:hover { color: var(--ink); }
+.lnk.danger { color: color-mix(in srgb, var(--rojo) 75%, var(--ink)); }
+@media (max-width: 560px) { .arch-item { flex-wrap: wrap; } .arch-act { width: 100%; } }
+
 /* --- timeline de la lesion --- */
 .tl { display: flex; flex-direction: column; }
 .tl-item { padding: 11px 0 11px 16px; border-left: 2px solid var(--line); position: relative; }

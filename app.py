@@ -1,4 +1,5 @@
 import os
+import secrets
 from functools import wraps
 
 from flask import Flask, request, jsonify, g, send_from_directory
@@ -10,12 +11,15 @@ app = Flask(__name__, static_folder="static", static_url_path="")
 # En desarrollo no cachear los archivos estaticos (asi los cambios se ven al recargar)
 app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
 
-# Carpeta donde se guardan las fotos de perfil (fuera de git)
+# Carpetas de subida (fuera de git)
 UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "uploads")
+UPLOAD_LESIONES_DIR = os.path.join(UPLOAD_DIR, "lesiones")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+os.makedirs(UPLOAD_LESIONES_DIR, exist_ok=True)
 
 EXTENSIONES_IMAGEN = {"png", "jpg", "jpeg", "webp"}
-app.config["MAX_CONTENT_LENGTH"] = 5 * 1024 * 1024  # 5 MB por archivo
+EXTENSIONES_ARCHIVO = {"pdf", "png", "jpg", "jpeg", "webp"}
+app.config["MAX_CONTENT_LENGTH"] = 15 * 1024 * 1024  # 15 MB por archivo
 
 
 @app.route("/")
@@ -373,7 +377,73 @@ def ruta_obtener_lesion(lesion_id):
     if lesion is None:
         return jsonify({"error": "Lesion no encontrada"}), 404
     lesion["timeline"] = db.notas_de_lesion(lesion_id)
+    lesion["archivos"] = db.archivos_de_lesion(lesion_id)
     return jsonify(lesion)
+
+
+@app.route("/api/lesion/<int:lesion_id>/archivo", methods=["POST"])
+@solo_lesiones
+def ruta_subir_archivo_lesion(lesion_id):
+    if db.obtener_lesion(lesion_id) is None:
+        return jsonify({"error": "Lesion no encontrada"}), 404
+    archivo = request.files.get("archivo")
+    if archivo is None or archivo.filename == "":
+        return jsonify({"error": "No se envio ningun archivo"}), 400
+
+    ext = archivo.filename.rsplit(".", 1)[-1].lower() if "." in archivo.filename else ""
+    if ext not in EXTENSIONES_ARCHIVO:
+        return jsonify(
+            {"error": f"Formato no permitido. Se aceptan: {', '.join(sorted(EXTENSIONES_ARCHIVO))}"}
+        ), 400
+
+    nombre_guardado = f"{secrets.token_hex(12)}.{ext}"
+    ruta = os.path.join(UPLOAD_LESIONES_DIR, nombre_guardado)
+    archivo.save(ruta)
+    tamano = os.path.getsize(ruta)
+
+    db.insertar_archivo_lesion(
+        lesion_id,
+        nombre_guardado,
+        secure_filename(archivo.filename) or f"archivo.{ext}",
+        (request.form.get("titulo") or "").strip() or None,
+        ext,
+        tamano,
+        g.usuario,
+    )
+    return jsonify(db.archivos_de_lesion(lesion_id)), 201
+
+
+@app.route("/api/lesion/<int:lesion_id>/archivos", methods=["GET"])
+@solo_ct
+def ruta_archivos_lesion(lesion_id):
+    return jsonify(db.archivos_de_lesion(lesion_id))
+
+
+@app.route("/api/archivo/<int:archivo_id>", methods=["GET"])
+@solo_ct
+def ruta_descargar_archivo(archivo_id):
+    archivo = db.obtener_archivo_lesion(archivo_id)
+    if archivo is None:
+        return jsonify({"error": "Archivo no encontrado"}), 404
+    return send_from_directory(
+        UPLOAD_LESIONES_DIR,
+        archivo["nombre_archivo"],
+        download_name=archivo["nombre_original"],
+        as_attachment=request.args.get("descargar") == "1",
+    )
+
+
+@app.route("/api/lesion/<int:lesion_id>/archivo/<int:archivo_id>", methods=["DELETE"])
+@solo_lesiones
+def ruta_eliminar_archivo_lesion(lesion_id, archivo_id):
+    archivo = db.eliminar_archivo_lesion(archivo_id)
+    if archivo is None:
+        return jsonify({"error": "Archivo no encontrado"}), 404
+    try:
+        os.remove(os.path.join(UPLOAD_LESIONES_DIR, archivo["nombre_archivo"]))
+    except OSError:
+        pass
+    return jsonify({"ok": True})
 
 
 @app.route("/api/lesion/<int:lesion_id>", methods=["PUT"])
