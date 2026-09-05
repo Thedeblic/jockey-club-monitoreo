@@ -126,6 +126,17 @@ function iniciales(nombre, apellido) {
 function inicialesDe(nombreCompleto) {
   return (nombreCompleto || "").split(" ").map(x => x[0] || "").join("").slice(0, 2).toUpperCase();
 }
+function fotoUrl(jugadorId, bust) {
+  return `/api/jugadores/${jugadorId}/foto?token=${encodeURIComponent(API.token || "")}${bust ? "&t=" + Date.now() : ""}`;
+}
+// avatar con foto si existe, si no las iniciales
+function avatarHTML(u, cls = "avatar") {
+  const ini = esc(u.apellido !== undefined ? iniciales(u.nombre, u.apellido) : inicialesDe(u.nombre || u.jugador || ""));
+  if (u.foto) {
+    return `<span class="${cls}" style="background-image:url('${fotoUrl(u.id)}');background-size:cover;background-position:center"></span>`;
+  }
+  return `<span class="${cls}">${ini}</span>`;
+}
 function hoyISO() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -631,7 +642,7 @@ async function screenPlantel() {
           return `<tr class="clickable" data-id="${j.id}">
             <td class="num-col">${esc(j.numero_camiseta ?? "–")}</td>
             <td><div class="cell-player">
-              <span class="avatar">${esc(iniciales(j.nombre, j.apellido))}</span>
+              ${avatarHTML(j)}
               <div><div class="cp-name">${esc(nombreJugador(j))}</div>
               <div class="cp-pos">${esc(j.posicion_principal || "—")}</div></div>
             </div></td>
@@ -696,7 +707,7 @@ async function screenFichaJugador(params) {
 
   view().innerHTML = `
     <div class="ficha-head">
-      <span class="ficha-foto" style="background-image:url('/api/jugadores/${id}/foto')">${j.foto ? "" : esc(iniciales(j.nombre, j.apellido))}</span>
+      <span class="ficha-foto" ${j.foto ? `style="background-image:url('${fotoUrl(id)}')"` : ""}>${j.foto ? "" : esc(iniciales(j.nombre, j.apellido))}</span>
       <div class="ficha-id">
         <div class="fh-num tnum">#${esc(j.numero_camiseta ?? "–")}</div>
         <h1>${esc(nombreJugador(j))}</h1>
@@ -1774,7 +1785,7 @@ async function screenConfig() {
   view().innerHTML = pageHead(titulo, esJugador ? "Tus datos deportivos" : "Tu cuenta") + `
     <div class="card" style="max-width:560px">
       <div style="display:flex;gap:16px;align-items:center;margin-bottom:18px">
-        <span class="avatar" id="cfg-av" style="width:64px;height:64px;font-size:1.2rem;background-image:url('/api/jugadores/${p.id}/foto');background-size:cover">${p.foto ? "" : esc(iniciales(p.nombre, p.apellido))}</span>
+        <span class="avatar" id="cfg-av" style="width:64px;height:64px;font-size:1.2rem;background-size:cover;background-position:center${p.foto ? `;background-image:url('${fotoUrl(p.id)}')` : ""}">${p.foto ? "" : esc(iniciales(p.nombre, p.apellido))}</span>
         <div style="flex:1">
           <div style="font-family:'Archivo Narrow';font-weight:700;font-size:1.3rem">${esc(nombreJugador(p))}</div>
           <div class="muted">${esc(p.email)} · ${esc(ROL_LABEL[p.rol] || p.rol)}</div>
@@ -1844,9 +1855,8 @@ async function screenConfig() {
     try {
       const r = await API.postForm("/perfil/foto", fd);
       state.perfil = r;
-      $("#cfg-av").style.backgroundImage = `url('/api/jugadores/${r.id}/foto?t=${Date.now()}')`;
+      $("#cfg-av").style.backgroundImage = `url('${fotoUrl(r.id, true)}')`;
       $("#cfg-av").textContent = "";
-      $("#who-av").textContent = "";
       const m = $("#cfg-msg"); m.className = "notice ok"; m.textContent = "Foto actualizada."; m.hidden = false;
     } catch (e) {
       const m = $("#cfg-msg"); m.className = "notice err"; m.textContent = e.message; m.hidden = false;
@@ -1891,7 +1901,7 @@ async function screenCuentas() {
 
   const fila = u => `<tr data-uid="${u.id}">
     <td><div class="cell-player">
-      <span class="avatar">${esc(iniciales(u.nombre, u.apellido))}</span>
+      ${avatarHTML(u)}
       <div><div class="cp-name">${esc(nombreJugador(u))}${u.id === state.perfil.id ? ' <span class="muted" style="font-size:.75rem">(vos)</span>' : ""}</div>
       <div class="cp-pos" style="text-transform:none;letter-spacing:0">${esc(u.email)}</div></div>
     </div></td>

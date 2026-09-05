@@ -82,6 +82,20 @@ def main():
         ids.append(jid)
     print(f"Jugadores en el plantel: {len(ids)}")
 
+    # Fotos de ejemplo para los primeros jugadores (silueta neutra)
+    import os
+    import shutil
+    ejemplos = os.path.join(os.path.dirname(__file__), "static", "img", "ejemplo")
+    uploads = os.path.join(os.path.dirname(__file__), "uploads")
+    os.makedirs(uploads, exist_ok=True)
+    for n, jid in enumerate(ids[:3], start=1):
+        origen = os.path.join(ejemplos, f"av{n}.png")
+        if os.path.exists(origen) and not db.obtener_usuario(jid)["foto"]:
+            destino = f"perfil_{jid}.png"
+            shutil.copy(origen, os.path.join(uploads, destino))
+            db.set_foto(jid, destino)
+    print("Fotos de ejemplo: 3 jugadores")
+
     # Sesiones de los ultimos 21 dias
     tipos = ["Entrenamiento", "Entrenamiento", "Entrenamiento", "Partido", "Gimnasio"]
     suenos = [

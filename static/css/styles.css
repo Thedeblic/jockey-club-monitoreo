@@ -104,10 +104,8 @@ input, select, textarea, button { font: inherit; color: inherit; }
   padding: 4px 8px 24px;
 }
 .brand .crest {
-  width: 34px; height: 34px; flex: 0 0 auto;
+  width: 36px; height: 36px; flex: 0 0 auto;
   object-fit: contain;
-  /* el escudo es rojo sobre blanco: en tema oscuro se ve mejor sin el blanco */
-  mix-blend-mode: screen;
 }
 .brand .wm {
   font-family: "Archivo Narrow", sans-serif;

@@ -37,9 +37,12 @@ def index():
 
 
 def _usuario_actual():
-    """Lee el token del header 'Authorization: Bearer <token>' y devuelve el usuario."""
+    """Toma el token del header Authorization o, como respaldo, del query '?token='
+    (necesario para <img>/descargas que no pueden mandar headers)."""
     encabezado = request.headers.get("Authorization", "")
     token = encabezado[7:].strip() if encabezado.startswith("Bearer ") else ""
+    if not token:
+        token = request.args.get("token", "")
     return db.usuario_por_token(token)
 
 
