@@ -1145,65 +1145,81 @@ async function screenConfig() {
 }
 
 /* ======================================================================
-   CALENDARIO
+   CALENDARIO  (vistas: mes / semana / dia)
    ====================================================================== */
+
+const DIAS_LARGO = ["lunes", "martes", "miercoles", "jueves", "viernes", "sabado", "domingo"];
+const CAL_H_INI = 7, CAL_H_FIN = 23, CAL_PX_HORA = 44;
 
 function isoLocal(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
-function mesRelativo(anio, mes, delta) {
-  const d = new Date(anio, mes + delta, 1);
-  return { anio: d.getFullYear(), mes: d.getMonth() };
+function inicioSemana(fecha) {
+  const d = new Date(fecha);
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  d.setHours(0, 0, 0, 0);
+  return d;
 }
 
-let calRef = null;
+let calVista = "mes";
+let calFecha = null;
+
+function calRango() {
+  if (calVista === "mes") {
+    const primero = new Date(calFecha.getFullYear(), calFecha.getMonth(), 1);
+    const ini = new Date(primero);
+    ini.setDate(1 - ((primero.getDay() + 6) % 7));
+    const fin = new Date(ini);
+    fin.setDate(ini.getDate() + 41);
+    return [ini, fin];
+  }
+  if (calVista === "semana") {
+    const ini = inicioSemana(calFecha);
+    const fin = new Date(ini);
+    fin.setDate(ini.getDate() + 6);
+    return [ini, fin];
+  }
+  return [new Date(calFecha), new Date(calFecha)];
+}
+function calMover(dir) {
+  const d = new Date(calFecha);
+  if (calVista === "mes") d.setMonth(d.getMonth() + dir);
+  else if (calVista === "semana") d.setDate(d.getDate() + 7 * dir);
+  else d.setDate(d.getDate() + dir);
+  calFecha = d;
+}
+function calTitulo() {
+  if (calVista === "mes") return `${MESES[calFecha.getMonth()]} ${calFecha.getFullYear()}`;
+  if (calVista === "semana") {
+    const ini = inicioSemana(calFecha);
+    const fin = new Date(ini); fin.setDate(ini.getDate() + 6);
+    return `${ini.getDate()} ${MESES[ini.getMonth()].slice(0, 3)} – ${fin.getDate()} ${MESES[fin.getMonth()].slice(0, 3)} ${fin.getFullYear()}`;
+  }
+  return `${DIAS_LARGO[(calFecha.getDay() + 6) % 7]} ${calFecha.getDate()} de ${MESES[calFecha.getMonth()]}`;
+}
 
 async function screenCalendario() {
   crumbs("Calendario");
-  if (!calRef) {
-    const h = new Date();
-    calRef = { anio: h.getFullYear(), mes: h.getMonth() };
-  }
-  const { anio, mes } = calRef;
-
-  const primero = new Date(anio, mes, 1);
-  const offset = (primero.getDay() + 6) % 7;            // lunes primero
-  const inicio = new Date(anio, mes, 1 - offset);
-  const celdas = Array.from({ length: 42 }, (_, i) => {
-    const d = new Date(inicio);
-    d.setDate(inicio.getDate() + i);
-    return d;
-  });
-
-  const eventos = await API.get(`/eventos?desde=${isoLocal(celdas[0])}&hasta=${isoLocal(celdas[41])}`);
-  const porFecha = {};
-  eventos.forEach(e => (porFecha[e.fecha] = porFecha[e.fecha] || []).push(e));
-
-  const hoyIso = isoLocal(new Date());
+  if (!calFecha) calFecha = new Date();
   const editable = esCT();
+  const [ini, fin] = calRango();
+  const eventos = await API.get(`/eventos?desde=${isoLocal(ini)}&hasta=${isoLocal(fin)}`);
 
   view().innerHTML = pageHead("Calendario",
-    editable ? "Planificacion del mes · toca un dia para agendar" : "Planificacion del equipo") + `
+    editable ? "Planificacion del equipo · toca para agendar" : "Planificacion del equipo") + `
     <div class="cal-bar">
-      <button class="cal-nav" id="cal-prev" aria-label="Mes anterior">‹</button>
-      <button class="cal-nav" id="cal-next" aria-label="Mes siguiente">›</button>
-      <span class="cal-month">${MESES[mes]} ${anio}</span>
+      <div class="seg" id="cal-vista">
+        ${[["mes", "Mes"], ["semana", "Semana"], ["dia", "Dia"]].map(v =>
+          `<button type="button" data-v="${v[0]}" class="${calVista === v[0] ? "on" : ""}">${v[1]}</button>`).join("")}
+      </div>
+      <button class="cal-nav" id="cal-prev">‹</button>
+      <button class="cal-nav" id="cal-next">›</button>
+      <span class="cal-month">${calTitulo()}</span>
       <button class="btn ghost" id="cal-hoy" style="padding:6px 12px">Hoy</button>
       <span class="spacer"></span>
       ${editable ? `<button class="btn" id="cal-add">+ Evento</button>` : ""}
     </div>
-    <div class="cal-grid">
-      ${DOW.map(d => `<div class="cal-dow">${d}</div>`).join("")}
-      ${celdas.map(d => {
-        const iso = isoLocal(d);
-        const evs = porFecha[iso] || [];
-        return `<div class="cal-cell ${d.getMonth() !== mes ? "otro-mes" : ""} ${iso === hoyIso ? "hoy" : ""} ${editable ? "editable" : ""}" data-fecha="${iso}">
-          <span class="cal-num">${d.getDate()}</span>
-          ${evs.slice(0, 4).map(e => `<div class="cal-ev ${esc(e.tipo)}" data-ev="${e.id}">${e.hora_inicio ? `<span class="ev-h">${esc(e.hora_inicio)}</span> ` : ""}${esc(e.titulo)}</div>`).join("")}
-          ${evs.length > 4 ? `<span class="cal-num">+${evs.length - 4}</span>` : ""}
-        </div>`;
-      }).join("")}
-    </div>
+    <div id="cal-body"></div>
     <p class="muted" style="font-size:.82rem;margin-top:12px">
       <span class="cal-ev entrenamiento" style="display:inline-block">Entrenamiento</span>
       <span class="cal-ev partido" style="display:inline-block">Partido</span>
@@ -1211,24 +1227,118 @@ async function screenCalendario() {
       <span class="cal-ev recuperacion" style="display:inline-block">Recuperacion</span>
     </p>`;
 
-  $("#cal-prev").onclick = () => { calRef = mesRelativo(anio, mes, -1); screenCalendario(); };
-  $("#cal-next").onclick = () => { calRef = mesRelativo(anio, mes, 1); screenCalendario(); };
-  $("#cal-hoy").onclick = () => {
-    const h = new Date();
-    calRef = { anio: h.getFullYear(), mes: h.getMonth() };
-    screenCalendario();
-  };
+  if (calVista === "mes") calRenderMes(eventos, editable);
+  else calRenderTiempo(eventos, editable);
 
-  view().querySelectorAll(".cal-ev[data-ev]").forEach(el => el.addEventListener("click", ev => {
+  $("#cal-vista").addEventListener("click", e => {
+    const b = e.target.closest("button");
+    if (!b) return;
+    calVista = b.dataset.v;
+    screenCalendario();
+  });
+  $("#cal-prev").onclick = () => { calMover(-1); screenCalendario(); };
+  $("#cal-next").onclick = () => { calMover(1); screenCalendario(); };
+  $("#cal-hoy").onclick = () => { calFecha = new Date(); screenCalendario(); };
+  if (editable) $("#cal-add").onclick = () => abrirEventoModal({ fecha: isoLocal(new Date()) }, true);
+
+  $("#cal-body").querySelectorAll("[data-ev]").forEach(el => el.addEventListener("click", ev => {
     ev.stopPropagation();
     abrirEventoModal(eventos.find(x => x.id === +el.dataset.ev), editable);
   }));
+}
+
+function calRenderMes(eventos, editable) {
+  const porFecha = {};
+  eventos.forEach(e => (porFecha[e.fecha] = porFecha[e.fecha] || []).push(e));
+  const hoyIso = isoLocal(new Date());
+  const [ini] = calRango();
+  const mesActual = calFecha.getMonth();
+  const celdas = Array.from({ length: 42 }, (_, i) => {
+    const d = new Date(ini);
+    d.setDate(ini.getDate() + i);
+    return d;
+  });
+
+  $("#cal-body").innerHTML = `<div class="cal-grid">
+    ${DOW.map(d => `<div class="cal-dow">${d}</div>`).join("")}
+    ${celdas.map(d => {
+      const iso = isoLocal(d);
+      const evs = porFecha[iso] || [];
+      return `<div class="cal-cell ${d.getMonth() !== mesActual ? "otro-mes" : ""} ${iso === hoyIso ? "hoy" : ""} ${editable ? "editable" : ""}" data-fecha="${iso}">
+        <span class="cal-num">${d.getDate()}</span>
+        ${evs.slice(0, 4).map(e => `<div class="cal-ev ${esc(e.tipo)}" data-ev="${e.id}">${e.hora_inicio ? `<span class="ev-h">${esc(e.hora_inicio)}</span> ` : ""}${esc(e.titulo)}</div>`).join("")}
+        ${evs.length > 4 ? `<span class="cal-num">+${evs.length - 4}</span>` : ""}
+      </div>`;
+    }).join("")}
+  </div>`;
 
   if (editable) {
-    $("#cal-add").onclick = () => abrirEventoModal({ fecha: hoyIso }, true);
-    view().querySelectorAll(".cal-cell.editable").forEach(c =>
+    $("#cal-body").querySelectorAll(".cal-cell.editable").forEach(c =>
       c.addEventListener("click", () => abrirEventoModal({ fecha: c.dataset.fecha }, true)));
   }
+}
+
+function calRenderTiempo(eventos, editable) {
+  const dias = calVista === "semana"
+    ? Array.from({ length: 7 }, (_, i) => { const d = inicioSemana(calFecha); d.setDate(d.getDate() + i); return d; })
+    : [new Date(calFecha)];
+  const hoyIso = isoLocal(new Date());
+  const porFecha = {};
+  eventos.forEach(e => (porFecha[e.fecha] = porFecha[e.fecha] || []).push(e));
+  const horas = [];
+  for (let h = CAL_H_INI; h <= CAL_H_FIN; h++) horas.push(h);
+  const alto = (CAL_H_FIN - CAL_H_INI + 1) * CAL_PX_HORA;
+
+  $("#cal-body").innerHTML = `<div class="tg-wrap"><div class="tg" style="--cols:${dias.length}">
+    <div class="tg-corner"></div>
+    ${dias.map(d => `<div class="tg-dayhead ${isoLocal(d) === hoyIso ? "hoy" : ""}">
+      <span>${DOW[(d.getDay() + 6) % 7]}</span> <b>${d.getDate()}</b>
+    </div>`).join("")}
+
+    <div class="tg-allday-label">Todo el dia</div>
+    ${dias.map(d => {
+      const evs = (porFecha[isoLocal(d)] || []).filter(e => !e.hora_inicio);
+      return `<div class="tg-allday" data-fecha="${isoLocal(d)}">
+        ${evs.map(e => `<div class="tg-chip ${esc(e.tipo)}" data-ev="${e.id}">${esc(e.titulo)}</div>`).join("")}
+      </div>`;
+    }).join("")}
+
+    <div class="tg-hours">
+      ${horas.map(h => `<div class="tg-hour" style="height:${CAL_PX_HORA}px">${String(h).padStart(2, "0")}:00</div>`).join("")}
+    </div>
+    ${dias.map(d => {
+      const evs = (porFecha[isoLocal(d)] || []).filter(e => e.hora_inicio);
+      return `<div class="tg-col ${editable ? "editable" : ""}" data-fecha="${isoLocal(d)}" style="height:${alto}px">
+        ${horas.map(h => `<div class="tg-slot" data-h="${h}" style="height:${CAL_PX_HORA}px"></div>`).join("")}
+        ${evs.map(calBloqueEvento).join("")}
+      </div>`;
+    }).join("")}
+  </div></div>`;
+
+  if (editable) {
+    $("#cal-body").querySelectorAll(".tg-slot").forEach(s => s.addEventListener("click", e => {
+      const col = e.target.closest(".tg-col");
+      abrirEventoModal({ fecha: col.dataset.fecha, hora_inicio: String(s.dataset.h).padStart(2, "0") + ":00" }, true);
+    }));
+    $("#cal-body").querySelectorAll(".tg-allday").forEach(a => a.addEventListener("click", e => {
+      if (e.target.closest("[data-ev]")) return;
+      abrirEventoModal({ fecha: a.dataset.fecha }, true);
+    }));
+  }
+}
+
+function calBloqueEvento(e) {
+  const [hi, mi] = e.hora_inicio.split(":").map(Number);
+  let dur = 90;
+  if (e.hora_fin) {
+    const [hf, mf] = e.hora_fin.split(":").map(Number);
+    dur = Math.max(30, (hf * 60 + mf) - (hi * 60 + mi));
+  }
+  const top = Math.max(0, ((hi * 60 + mi) - CAL_H_INI * 60) / 60 * CAL_PX_HORA);
+  const alto = Math.max(24, dur / 60 * CAL_PX_HORA);
+  return `<div class="tg-event ${esc(e.tipo)}" data-ev="${e.id}" style="top:${top}px;height:${alto}px">
+    <b>${esc(e.hora_inicio)}</b> ${esc(e.titulo)}${e.lugar ? `<span class="tg-e-sub">${esc(e.lugar)}</span>` : ""}
+  </div>`;
 }
 
 function abrirEventoModal(ev, editable) {

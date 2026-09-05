@@ -500,6 +500,63 @@ input, select, textarea, button { font: inherit; color: inherit; }
   .cal-ev { font-size: .68rem; }
 }
 
+/* --- vista semana / dia (time grid) --- */
+.tg-wrap { overflow-x: auto; }
+.tg {
+  display: grid;
+  grid-template-columns: 54px repeat(var(--cols), minmax(120px, 1fr));
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.tg-corner { border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.tg-dayhead {
+  padding: 8px 6px; text-align: center;
+  border-right: 1px solid var(--line); border-bottom: 1px solid var(--line);
+  font-family: "Barlow Semi Condensed", sans-serif;
+}
+.tg-dayhead span { color: var(--ink-dim); text-transform: uppercase; letter-spacing: .06em; font-size: .7rem; }
+.tg-dayhead b { font-weight: 700; font-size: 1rem; margin-left: 5px; font-variant-numeric: tabular-nums; }
+.tg-dayhead.hoy b { color: var(--accent); }
+
+.tg-allday-label {
+  font-size: .64rem; color: var(--ink-faint); padding: 5px 6px;
+  border-right: 1px solid var(--line); border-bottom: 1px solid var(--line);
+  text-transform: uppercase; letter-spacing: .05em; text-align: right;
+}
+.tg-allday {
+  border-right: 1px solid var(--line); border-bottom: 1px solid var(--line);
+  padding: 3px; display: flex; flex-direction: column; gap: 3px; min-height: 28px;
+}
+.tg-chip {
+  font-size: .7rem; padding: 2px 6px; border-radius: 4px; cursor: pointer;
+  background: var(--surface-2); border-left: 3px solid var(--ink-faint);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.tg-hours { border-right: 1px solid var(--line); }
+.tg-hour {
+  font-size: .66rem; color: var(--ink-faint); text-align: right;
+  padding-right: 6px; box-sizing: border-box;
+}
+.tg-hour::after { content: ""; }
+.tg-col { position: relative; border-right: 1px solid var(--line); }
+.tg-slot { border-bottom: 1px solid var(--line); box-sizing: border-box; }
+.tg-col.editable .tg-slot { cursor: pointer; }
+.tg-slot:hover { background: var(--surface-2); }
+.tg-event {
+  position: absolute; left: 3px; right: 3px; border-radius: 5px;
+  background: var(--surface-2); border-left: 3px solid var(--ink-faint);
+  padding: 3px 7px; font-size: .72rem; line-height: 1.25;
+  overflow: hidden; cursor: pointer;
+}
+.tg-event b { font-variant-numeric: tabular-nums; }
+.tg-e-sub { display: block; color: var(--ink-dim); font-size: .66rem; }
+.tg-event.entrenamiento, .tg-chip.entrenamiento { border-left-color: var(--verde); }
+.tg-event.partido, .tg-chip.partido { border-left-color: var(--rojo); background: color-mix(in srgb, var(--rojo) 14%, var(--surface-2)); }
+.tg-event.gimnasio, .tg-chip.gimnasio { border-left-color: var(--amarillo); }
+.tg-event.recuperacion, .tg-chip.recuperacion { border-left-color: var(--naranja); }
+
 /* modal */
 .modal-bg {
   position: fixed; inset: 0; background: rgba(0,0,0,.6);
