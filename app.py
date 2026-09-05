@@ -10,11 +10,6 @@ app = Flask(__name__, static_folder="static", static_url_path="")
 # En desarrollo no cachear los archivos estaticos (asi los cambios se ven al recargar)
 app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
 
-
-@app.route("/")
-def index():
-    return app.send_static_file("index.html")
-
 # Carpeta donde se guardan las fotos de perfil (fuera de git)
 UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
@@ -23,8 +18,17 @@ EXTENSIONES_IMAGEN = {"png", "jpg", "jpeg", "webp"}
 app.config["MAX_CONTENT_LENGTH"] = 5 * 1024 * 1024  # 5 MB por archivo
 
 
+@app.route("/")
+def index():
+    return app.send_static_file("index.html")
+
+
 # ---------------------------------------------------------------------------
-# Autenticacion: "quien es el usuario de esta peticion"
+# Autenticacion y roles
+#
+#   - jugador        -> registra SU carga / hidratacion, ve solo SUS datos
+#   - cuerpo_tecnico -> NO registra carga/hidratacion; ve todo el plantel
+#                       y registra lesiones (parte medica)
 # ---------------------------------------------------------------------------
 
 
@@ -35,18 +39,43 @@ def _usuario_actual():
     return db.usuario_por_token(token)
 
 
-def login_requerido(vista):
-    """Decorador: corta con 401 si no hay sesion; si hay, deja el usuario en g.usuario."""
-
+def _con_usuario(vista, verificar=None):
     @wraps(vista)
     def envoltorio(*args, **kwargs):
         usuario = _usuario_actual()
         if usuario is None:
             return jsonify({"error": "Necesitas iniciar sesion"}), 401
         g.usuario = usuario
+        if verificar:
+            error = verificar(usuario)
+            if error:
+                return error
         return vista(*args, **kwargs)
 
     return envoltorio
+
+
+def login_requerido(vista):
+    return _con_usuario(vista)
+
+
+def solo_ct(vista):
+    def check(u):
+        if u["rol"] != "cuerpo_tecnico":
+            return jsonify({"error": "Reservado para el cuerpo tecnico"}), 403
+    return _con_usuario(vista, check)
+
+
+def solo_jugador(vista):
+    def check(u):
+        if u["rol"] != "jugador":
+            return jsonify({"error": "Cada jugador registra sus propios datos"}), 403
+    return _con_usuario(vista, check)
+
+
+def _puede_ver(jugador_id):
+    """Un jugador solo se ve a si mismo; el CT ve a cualquiera."""
+    return g.usuario["rol"] == "cuerpo_tecnico" or g.usuario["id"] == jugador_id
 
 
 @app.errorhandler(413)
@@ -81,7 +110,7 @@ def ruta_registro():
                 {"error": f"{campo} invalida. Opciones: {', '.join(db.POSICIONES)}"}
             ), 400
 
-    nuevo_id = db.crear_usuario(
+    db.crear_usuario(
         email=data["email"],
         password=data["password"],
         nombre=data["nombre"],
@@ -154,6 +183,7 @@ def ruta_subir_foto():
 
 
 @app.route("/api/jugadores/<int:jugador_id>/foto", methods=["GET"])
+@login_requerido
 def ruta_ver_foto(jugador_id):
     usuario = db.obtener_usuario(jugador_id)
     if usuario is None or not usuario.get("foto"):
@@ -167,7 +197,7 @@ def ruta_ver_foto(jugador_id):
 
 
 @app.route("/api/jugadores", methods=["GET"])
-@login_requerido
+@solo_ct
 def ruta_listar_jugadores():
     return jsonify(db.listar_jugadores())
 
@@ -175,6 +205,8 @@ def ruta_listar_jugadores():
 @app.route("/api/jugadores/<int:jugador_id>", methods=["GET"])
 @login_requerido
 def ruta_obtener_jugador(jugador_id):
+    if not _puede_ver(jugador_id):
+        return jsonify({"error": "No podes ver los datos de otro jugador"}), 403
     jugador = db.obtener_jugador(jugador_id)
     if jugador is None:
         return jsonify({"error": "Jugador no encontrado"}), 404
@@ -185,30 +217,36 @@ def ruta_obtener_jugador(jugador_id):
 
 
 # ---------------------------------------------------------------------------
-# Sesiones de entrenamiento (carga)
+# Sesiones de entrenamiento (carga) - las registra el propio jugador
 # ---------------------------------------------------------------------------
 
 
 @app.route("/api/sesiones", methods=["POST"])
+@solo_jugador
 def ruta_crear_sesion():
-    data = request.get_json()
+    data = request.get_json() or {}
     nueva_id, carga_total = db.insertar_sesion(
-        data.get("jugador_id"),
+        g.usuario["id"],
         data.get("fecha"),
         data.get("tipo"),
         data.get("duracion_min"),
         data.get("srpe"),
         data.get("notas", ""),
+        sueno=data.get("sueno"),
     )
     return jsonify({"id": nueva_id, "carga_total": carga_total}), 201
 
 
 @app.route("/api/sesiones/<int:jugador_id>", methods=["GET"])
+@login_requerido
 def ruta_sesiones_de_jugador(jugador_id):
+    if not _puede_ver(jugador_id):
+        return jsonify({"error": "No podes ver los datos de otro jugador"}), 403
     return jsonify(db.sesiones_de_jugador(jugador_id))
 
 
 @app.route("/api/carga/resumen", methods=["GET"])
+@solo_ct
 def ruta_resumen_carga():
     try:
         dias = int(request.args.get("dias", 7))
@@ -217,21 +255,31 @@ def ruta_resumen_carga():
     return jsonify(db.resumen_carga(max(1, min(dias, 90))))
 
 
+@app.route("/api/carga/jugador/<int:jugador_id>", methods=["GET"])
+@login_requerido
+def ruta_carga_jugador(jugador_id):
+    if not _puede_ver(jugador_id):
+        return jsonify({"error": "No podes ver los datos de otro jugador"}), 403
+    return jsonify(db.resumen_carga_jugador(jugador_id))
+
+
 # ---------------------------------------------------------------------------
-# Hidratacion (peso pre/post)
+# Hidratacion - la registra el propio jugador
 # ---------------------------------------------------------------------------
 
 
 @app.route("/api/hidratacion", methods=["GET"])
+@solo_ct
 def ruta_listar_hidratacion():
     return jsonify(db.listar_hidratacion())
 
 
 @app.route("/api/hidratacion", methods=["POST"])
+@solo_jugador
 def ruta_crear_hidratacion():
     data = request.get_json() or {}
 
-    faltantes = [c for c in ("jugador_id", "fecha", "peso_pre_kg", "peso_post_kg") if data.get(c) in (None, "")]
+    faltantes = [c for c in ("fecha", "peso_pre_kg", "peso_post_kg") if data.get(c) in (None, "")]
     if faltantes:
         return jsonify({"error": f"Faltan datos: {', '.join(faltantes)}"}), 400
 
@@ -244,7 +292,7 @@ def ruta_crear_hidratacion():
         return jsonify({"error": "El peso debe ser mayor a 0"}), 400
 
     nueva_id = db.insertar_hidratacion(
-        jugador_id=data["jugador_id"],
+        jugador_id=g.usuario["id"],
         fecha=data["fecha"],
         peso_pre_kg=pre,
         peso_post_kg=post,
@@ -259,24 +307,29 @@ def ruta_crear_hidratacion():
 
 
 @app.route("/api/hidratacion/<int:jugador_id>", methods=["GET"])
+@login_requerido
 def ruta_hidratacion_de_jugador(jugador_id):
+    if not _puede_ver(jugador_id):
+        return jsonify({"error": "No podes ver los datos de otro jugador"}), 403
     return jsonify(db.hidratacion_de_jugador(jugador_id))
 
 
 # ---------------------------------------------------------------------------
-# Lesiones
+# Lesiones - las registra el cuerpo tecnico / area medica
 # ---------------------------------------------------------------------------
 
 
 @app.route("/api/lesiones", methods=["GET"])
+@solo_ct
 def ruta_listar_lesiones():
     solo_activas = request.args.get("activas") in ("1", "true", "si")
     return jsonify(db.listar_lesiones(solo_activas))
 
 
 @app.route("/api/lesiones", methods=["POST"])
+@solo_ct
 def ruta_crear_lesion():
-    data = request.get_json()
+    data = request.get_json() or {}
     nueva_id = db.insertar_lesion(
         data.get("jugador_id"),
         data.get("fecha_lesion"),
@@ -293,15 +346,19 @@ def ruta_crear_lesion():
 
 
 @app.route("/api/lesiones/<int:jugador_id>", methods=["GET"])
+@login_requerido
 def ruta_lesiones_de_jugador(jugador_id):
+    if not _puede_ver(jugador_id):
+        return jsonify({"error": "No podes ver los datos de otro jugador"}), 403
     return jsonify(db.lesiones_de_jugador(jugador_id))
 
 
 @app.route("/api/lesiones/<int:lesion_id>/alta", methods=["POST"])
+@solo_ct
 def ruta_registrar_alta(lesion_id):
     if db.obtener_lesion(lesion_id) is None:
         return jsonify({"error": "Lesion no encontrada"}), 404
-    data = request.get_json()
+    data = request.get_json() or {}
     db.registrar_alta(lesion_id, data.get("fecha_alta"))
     return jsonify(db.obtener_lesion(lesion_id))
 

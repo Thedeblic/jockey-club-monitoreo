@@ -379,6 +379,11 @@ input, select, textarea, button { font: inherit; color: inherit; }
 .notice.err { background: color-mix(in srgb, var(--rojo) 14%, transparent); color: #ffb3ba; }
 .notice.ok  { background: color-mix(in srgb, var(--verde) 14%, transparent); color: #7fd8cd; }
 
+.track { height: 6px; background: var(--surface-2); border-radius: 99px; overflow: hidden; margin: 12px 0 5px; }
+.track i { display: block; height: 100%; background: var(--rojo); border-radius: 99px; }
+.track-l { display: flex; justify-content: space-between; font-size: .74rem; color: var(--ink-dim); }
+.track-l, .track-l span { font-variant-numeric: tabular-nums; }
+
 .empty {
   text-align: center;
   padding: 50px 20px;

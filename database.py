@@ -31,6 +31,13 @@ def get_conexion():
     return conn
 
 
+def _agregar_columna(cursor, tabla, columna, tipo):
+    """Agrega una columna si todavia no existe (migracion simple de bases viejas)."""
+    existentes = [c[1] for c in cursor.execute(f"PRAGMA table_info({tabla})").fetchall()]
+    if columna not in existentes:
+        cursor.execute(f"ALTER TABLE {tabla} ADD COLUMN {columna} {tipo}")
+
+
 def crear_tablas():
     conn = get_conexion()
     cursor = conn.cursor()
@@ -65,10 +72,12 @@ def crear_tablas():
             duracion_min INTEGER NOT NULL,
             srpe INTEGER NOT NULL,
             carga_total INTEGER,
+            sueno TEXT,
             notas TEXT,
             FOREIGN KEY (jugador_id) REFERENCES usuarios (id)
         )
     """)
+    _agregar_columna(cursor, "sesiones", "sueno", "TEXT")
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS hidratacion (
@@ -275,16 +284,16 @@ def obtener_jugador(jugador_id):
 # ---------------------------------------------------------------------------
 
 
-def insertar_sesion(jugador_id, fecha, tipo, duracion_min, srpe, notas):
+def insertar_sesion(jugador_id, fecha, tipo, duracion_min, srpe, notas, sueno=None):
     carga_total = duracion_min * srpe
 
     conn = get_conexion()
     cursor = conn.cursor()
     cursor.execute(
         """INSERT INTO sesiones
-           (jugador_id, fecha, tipo, duracion_min, srpe, carga_total, notas)
-           VALUES (?, ?, ?, ?, ?, ?, ?)""",
-        (jugador_id, fecha, tipo, duracion_min, srpe, carga_total, notas),
+           (jugador_id, fecha, tipo, duracion_min, srpe, carga_total, sueno, notas)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        (jugador_id, fecha, tipo, duracion_min, srpe, carga_total, sueno, notas),
     )
     conn.commit()
     nueva_id = cursor.lastrowid
@@ -303,7 +312,7 @@ def sesiones_de_jugador(jugador_id):
     return [dict(fila) for fila in filas]
 
 
-# Zona segun ACWR = carga aguda (7 dias) / carga cronica (media semanal de 28 dias).
+# Zona segun ACWR = carga aguda (7 dias) / carga cronica (28 dias).
 # "Sweet spot" 0,80-1,30 (Gabbett). Umbrales editables: son criterio del CT.
 def _zona_acwr(acwr):
     if acwr is None:
@@ -324,13 +333,60 @@ def _suma_carga(conn, jugador_id, desde):
     ).fetchone()[0]
 
 
+def _cargas_diarias(conn, jugador_id, dias):
+    """Lista de carga diaria de los ultimos `dias` dias (del mas viejo al mas nuevo, 0 si no hubo)."""
+    hoy = date.today()
+    desde = (hoy - timedelta(days=dias - 1)).isoformat()
+    filas = conn.execute(
+        "SELECT fecha, SUM(carga_total) AS c FROM sesiones "
+        "WHERE jugador_id = ? AND fecha >= ? GROUP BY fecha",
+        (jugador_id, desde),
+    ).fetchall()
+    por_fecha = {f["fecha"]: f["c"] or 0 for f in filas}
+    return [
+        por_fecha.get((hoy - timedelta(days=i)).isoformat(), 0)
+        for i in range(dias - 1, -1, -1)
+    ]
+
+
+def _ewma(serie, n):
+    """Media movil exponencial (Williams et al.). serie ordenada del dia mas viejo al mas nuevo."""
+    lam = 2 / (n + 1)
+    valor = 0.0
+    for carga in serie:
+        valor = carga * lam + valor * (1 - lam)
+    return valor
+
+
+def _acwr_jugador(conn, jugador_id):
+    """Devuelve ACWR por promedio movil (RA) y por EWMA, mas la zona resultante."""
+    c7 = _suma_carga(conn, jugador_id, (date.today() - timedelta(days=6)).isoformat())
+    c28 = _suma_carga(conn, jugador_id, (date.today() - timedelta(days=27)).isoformat())
+    cronica_ra = c28 / 4 if c28 else 0
+    acwr_ra = round(c7 / cronica_ra, 2) if cronica_ra else None
+
+    serie = _cargas_diarias(conn, jugador_id, 42)  # 42 dias = margen para estabilizar la EWMA
+    aguda_ewma = _ewma(serie, 7)
+    cronica_ewma = _ewma(serie, 28)
+    acwr_ewma = round(aguda_ewma / cronica_ewma, 2) if cronica_ewma else None
+
+    referencia = acwr_ewma if acwr_ewma is not None else acwr_ra
+    zona, semaforo = _zona_acwr(referencia)
+    return {
+        "carga_7d": c7,
+        "carga_28d": c28,
+        "acwr_ra": acwr_ra,
+        "acwr_ewma": acwr_ewma,
+        "zona": zona,
+        "semaforo": semaforo,
+    }
+
+
 def resumen_carga(dias=7):
     """Agregados de carga para los graficos del plantel."""
     conn = get_conexion()
     hoy = date.today()
     desde_rango = (hoy - timedelta(days=dias - 1)).isoformat()
-    desde_7 = (hoy - timedelta(days=6)).isoformat()
-    desde_28 = (hoy - timedelta(days=27)).isoformat()
 
     # serie diaria del equipo (rellena los dias sin sesiones con 0)
     filas = conn.execute(
@@ -354,21 +410,18 @@ def resumen_carga(dias=7):
     por_jugador = []
     distribucion = {"adecuada": 0, "atencion": 0, "alta": 0, "muy_alta": 0, "sin_datos": 0}
     for j in jugadores_rows:
-        c7 = _suma_carga(conn, j["id"], desde_7)
-        c28 = _suma_carga(conn, j["id"], desde_28)
-        cronica = c28 / 4 if c28 else 0
-        acwr = round(c7 / cronica, 2) if cronica else None
-        zona, semaforo = _zona_acwr(acwr)
-        distribucion[zona] += 1
+        m = _acwr_jugador(conn, j["id"])
+        distribucion[m["zona"]] += 1
         por_jugador.append(
             {
                 "jugador_id": j["id"],
                 "nombre": f'{j["nombre"]} {j["apellido"]}'.strip(),
                 "posicion": j["posicion_principal"],
-                "carga_7d": c7,
-                "acwr": acwr,
-                "zona": zona,
-                "semaforo": semaforo,
+                "carga_7d": m["carga_7d"],
+                "acwr_ra": m["acwr_ra"],
+                "acwr_ewma": m["acwr_ewma"],
+                "zona": m["zona"],
+                "semaforo": m["semaforo"],
             }
         )
     por_jugador.sort(key=lambda x: x["carga_7d"], reverse=True)
@@ -405,6 +458,20 @@ def resumen_carga(dias=7):
         "por_posicion": por_posicion,
         "distribucion": distribucion,
     }
+
+
+def resumen_carga_jugador(jugador_id, dias=28):
+    """Carga de un solo jugador: serie diaria + ACWR (RA y EWMA)."""
+    conn = get_conexion()
+    serie = _cargas_diarias(conn, jugador_id, dias)
+    hoy = date.today()
+    serie_diaria = [
+        {"fecha": (hoy - timedelta(days=dias - 1 - i)).isoformat(), "carga": c}
+        for i, c in enumerate(serie)
+    ]
+    m = _acwr_jugador(conn, jugador_id)
+    conn.close()
+    return {"jugador_id": jugador_id, "rango_dias": dias, "serie_diaria": serie_diaria, **m}
 
 
 # ---------------------------------------------------------------------------

@@ -1,19 +1,47 @@
 /* ==========================================================================
    Jockey Club Handball · frontend
    Router por hash + pantallas. Todo se dibuja dentro de #view.
+
+   Roles:
+     cuerpo_tecnico -> ve todo el plantel, no registra carga/hidratacion
+     jugador        -> registra SU carga/hidratacion, ve solo lo suyo
    ========================================================================== */
 
-const SEED_HINT = "Datos de prueba (tras correr seed.py): ct@jockey.com / handball2025";
+const SEED_HINT = "Prueba: ct@jockey.com / handball2025  ·  jugador: facundo.gomez@jockey.com / jugador2025";
 const POSICIONES = ["Arquero", "Lateral", "Central", "Extremo", "Pivote"];
 const TIPOS_SESION = ["Entrenamiento", "Partido", "Gimnasio", "Recuperacion", "Otro"];
+const SUENO_OPCIONES = [
+  "Menos de 6 h / Poco reparador",
+  "6-7 h / Regular",
+  "7-8 h / Reparador",
+  "Mas de 8 h / Muy reparador",
+];
+
+const NAV = {
+  cuerpo_tecnico: [
+    ["inicio", "Inicio"], ["plantel", "Plantel"], ["carga", "Carga"],
+    ["sep"], ["calendario", "Calendario"], ["informes", "Informes"], ["config", "Configuracion"],
+  ],
+  jugador: [
+    ["inicio", "Inicio"], ["micarga", "Mi carga"], ["registro", "Registrar sesion"],
+    ["hidratacion", "Hidratacion"], ["mislesiones", "Mis lesiones"],
+    ["sep"], ["calendario", "Calendario"], ["config", "Mi perfil"],
+  ],
+};
+const ACCESO = {
+  cuerpo_tecnico: ["inicio", "plantel", "carga", "calendario", "informes", "config"],
+  jugador: ["inicio", "micarga", "registro", "hidratacion", "mislesiones", "calendario", "config"],
+};
 
 const state = { perfil: null, jugadores: null };
+const esCT = () => state.perfil.rol === "cuerpo_tecnico";
+const yo = () => state.perfil.id;
 
 /* -------------------------------------------------------------- charts ---- */
 
 const COL = {
   verde: "#2A9D8F", amarillo: "#E9C46A", naranja: "#F4A261", rojo: "#E63946",
-  line: "#2A2A2D", ink: "#9A9AA1", surface: "#1F1F22", accent: "#E63946",
+  line: "#2A2A2D", ink: "#9A9AA1", surface: "#1F1F22", accent: "#E63946", gris: "#5C5C63",
 };
 
 if (window.Chart) {
@@ -45,6 +73,8 @@ function colorPorCarga(v, media) {
 const ejeSinGrilla = { grid: { display: false }, border: { color: COL.line } };
 const ejeGrillaTenue = { grid: { color: COL.line }, border: { display: false } };
 
+/* --------------------------------------------------------------- utils ---- */
+
 const $ = (sel, root = document) => root.querySelector(sel);
 const view = () => $("#view");
 
@@ -54,13 +84,23 @@ function esc(s) {
   ));
 }
 function iniciales(nombre, apellido) {
-  return ((nombre || "")[0] || "") + ((apellido || "")[0] || "");
+  return (((nombre || "")[0] || "") + ((apellido || "")[0] || "")).toUpperCase();
+}
+function inicialesDe(nombreCompleto) {
+  return (nombreCompleto || "").split(" ").map(x => x[0] || "").join("").slice(0, 2).toUpperCase();
 }
 function hoyISO() {
   return new Date().toISOString().slice(0, 10);
 }
 function nombreJugador(j) {
   return `${j.nombre} ${j.apellido}`.trim();
+}
+function ddmm(iso) {
+  const [, m, d] = iso.split("-");
+  return `${d}/${m}`;
+}
+function zonaLabel(z) {
+  return { adecuada: "Adecuada", atencion: "Atencion", alta: "Alta", muy_alta: "Muy alta", sin_datos: "Sin datos" }[z] || z;
 }
 function spinner() {
   view().innerHTML = '<div class="spinner"></div>';
@@ -74,11 +114,18 @@ async function jugadores() {
   if (!state.jugadores) state.jugadores = await API.get("/jugadores");
   return state.jugadores;
 }
-function selectJugadores(lista, id = "f-jugador") {
-  return `<select id="${id}" required>
-    <option value="">Elegir jugador…</option>
-    ${lista.map(j => `<option value="${j.id}">${esc(nombreJugador(j))} · ${esc(j.posicion_principal || "—")}</option>`).join("")}
-  </select>`;
+
+function pageHead(titulo, sub) {
+  return `<div class="page-head">
+    <div class="glyph">◆</div>
+    <div><h1>${esc(titulo)}</h1><p>${esc(sub)}</p></div>
+  </div>`;
+}
+function kpi(label, value, cls = "") {
+  return `<div class="card kpi">
+    <span class="k-label">${esc(label)}</span>
+    <span class="k-value ${cls} tnum">${esc(value)}</span>
+  </div>`;
 }
 
 /* ---------------------------------------------------------------- auth ---- */
@@ -110,9 +157,15 @@ function showApp() {
   $("#login").hidden = true;
   $("#app").classList.add("ready");
   const p = state.perfil;
-  $("#who-av").textContent = iniciales(p.nombre, p.apellido).toUpperCase() || "–";
-  $("#who-name").textContent = `${nombreJugador(p)} · ${p.rol === "cuerpo_tecnico" ? "CT" : "Jugador"}`;
-  if (!location.hash) location.hash = "#/inicio";
+  $("#who-av").textContent = (esCT() ? "CT" : iniciales(p.nombre, p.apellido)) || "–";
+  $("#who-name").textContent = esCT() ? "Cuerpo tecnico" : `${nombreJugador(p)} · Jugador`;
+
+  $("#nav").innerHTML = (NAV[p.rol] || NAV.jugador).map(item => (
+    item[0] === "sep" ? `<div class="sep"></div>`
+      : `<a href="#/${item[0]}" data-route="${item[0]}">${esc(item[1])}</a>`
+  )).join("");
+
+  if (!location.hash || location.hash === "#/") location.hash = "#/inicio";
   router();
 }
 
@@ -145,35 +198,30 @@ const ROUTES = {
   inicio: screenInicio,
   plantel: screenPlantel,
   carga: screenCarga,
-  hidratacion: screenHidratacion,
+  micarga: screenMiCarga,
   registro: screenRegistro,
-  bienestar: () => screenSoon("Bienestar", "Cuestionario diario: sueno, fatiga, dolor muscular y estres."),
-  calendario: () => screenSoon("Calendario", "Planificacion de entrenamientos, partidos y eventos."),
+  hidratacion: screenHidratacion,
+  mislesiones: screenMisLesiones,
+  config: screenConfig,
+  calendario: () => screenSoon("Calendario", "Planificacion de entrenamientos, partidos y eventos del mes."),
   informes: () => screenSoon("Informes", "Resumenes exportables por jugador y por plantel."),
-  config: () => screenSoon("Configuracion", "Cuentas, roles y preferencias del sistema."),
 };
 
 function router() {
+  if (!state.perfil) return;  // todavia no cargo la sesion
   destroyCharts();
-  const route = (location.hash.replace("#/", "") || "inicio").split("/")[0];
+  let route = (location.hash.replace("#/", "") || "inicio").split("/")[0];
+  if (!ACCESO[state.perfil.rol].includes(route)) route = "inicio";
+
   document.querySelectorAll("#nav a").forEach(a => {
     a.classList.toggle("active", a.dataset.route === route);
   });
-  const fn = ROUTES[route] || ROUTES.inicio;
+  const fn = ROUTES[route] || screenInicio;
   Promise.resolve()
     .then(() => { spinner(); return fn(); })
     .catch(err => {
       view().innerHTML = `<div class="notice err">${esc(err.message)}</div>`;
     });
-}
-
-/* ---------------------------------------------------------- pantallas ---- */
-
-function pageHead(titulo, sub) {
-  return `<div class="page-head">
-    <div class="glyph">◆</div>
-    <div><h1>${esc(titulo)}</h1><p>${esc(sub)}</p></div>
-  </div>`;
 }
 
 function screenSoon(titulo, sub) {
@@ -185,9 +233,15 @@ function screenSoon(titulo, sub) {
     </div></div>`;
 }
 
-/* ---- Inicio / dashboard ---- */
+/* ======================================================================
+   INICIO
+   ====================================================================== */
 
-async function screenInicio() {
+function screenInicio() {
+  return esCT() ? screenInicioCT() : screenInicioJugador();
+}
+
+async function screenInicioCT() {
   crumbs("Inicio");
   const [js, lesiones, resumen] = await Promise.all([
     jugadores(),
@@ -196,17 +250,16 @@ async function screenInicio() {
   ]);
   const lesionadosIds = new Set(lesiones.map(l => l.jugador_id));
   const total = js.length;
-  const enAlerta = lesionadosIds.size;
-  const disponibles = total - enAlerta;
-  const pctDisp = total ? Math.round((disponibles / total) * 100) : 100;
   const enRiesgo = resumen.por_jugador.filter(p => ["alta", "muy_alta"].includes(p.zona));
+  const disponibles = total - lesionadosIds.size;
+  const pctDisp = total ? Math.round((disponibles / total) * 100) : 100;
   const observar = js.filter(j => lesionadosIds.has(j.id));
 
-  view().innerHTML = pageHead(`Hola, ${state.perfil.nombre}`, "Estado del plantel hoy") + `
+  view().innerHTML = pageHead("Panel del plantel", "Estado del plantel hoy") + `
     <div class="grid cols-4">
       ${kpi("Jugadores", total)}
       ${kpi("Disponibles", disponibles)}
-      ${kpi("En alerta", enAlerta + enRiesgo.length, (enAlerta + enRiesgo.length) ? "accent" : "")}
+      ${kpi("En alerta", lesionadosIds.size + enRiesgo.length, (lesionadosIds.size + enRiesgo.length) ? "accent" : "")}
       ${kpi("Disponibilidad", pctDisp + "%")}
     </div>
     <div class="grid cols-2 section-gap" style="align-items:start">
@@ -231,116 +284,103 @@ function filaObservar(lesionados, enRiesgo) {
       ini: iniciales(j.nombre, j.apellido), chip: "rojo", txt: "Lesion",
     })),
     ...enRiesgo.map(p => ({
-      nombre: p.nombre, sub: (p.posicion || "") + " · ACWR " + (p.acwr ?? "–"),
-      ini: p.nombre.split(" ").map(x => x[0]).join(""), chip: p.semaforo,
+      nombre: p.nombre, sub: (p.posicion || "") + " · ACWR " + (p.acwr_ewma ?? p.acwr_ra ?? "–"),
+      ini: inicialesDe(p.nombre), chip: p.semaforo,
       txt: p.zona === "muy_alta" ? "Carga muy alta" : "Carga alta",
     })),
   ];
   if (!items.length) return `<p class="muted">Sin alertas. Todo el plantel en zona adecuada.</p>`;
   return `<table class="table"><tbody>${items.map(it => `<tr>
     <td><div class="cell-player">
-      <span class="avatar">${esc((it.ini || "").toUpperCase())}</span>
+      <span class="avatar">${esc(it.ini)}</span>
       <div><div class="cp-name">${esc(it.nombre)}</div><div class="cp-pos">${esc(it.sub)}</div></div>
     </div></td>
     <td style="text-align:right"><span class="chip ${esc(it.chip)}">${esc(it.txt)}</span></td>
   </tr>`).join("")}</tbody></table>`;
 }
 
+async function screenInicioJugador() {
+  crumbs("Inicio");
+  const [carga, hidra, lesiones] = await Promise.all([
+    API.get("/carga/jugador/" + yo()),
+    API.get("/hidratacion/" + yo()),
+    API.get("/lesiones/" + yo()),
+  ]);
+  const activa = lesiones.find(l => l.estado === "activa");
+  const ultH = hidra[0];
+  const acwr = carga.acwr_ewma ?? carga.acwr_ra;
+
+  view().innerHTML = pageHead(`Hola, ${state.perfil.nombre}`, "Tu resumen de la semana") + `
+    <div class="grid cols-3">
+      ${kpi("Carga 7 dias", carga.carga_7d.toLocaleString("es") + " UA")}
+      <div class="card kpi">
+        <span class="k-label">ACWR (EWMA)</span>
+        <span class="k-value tnum">${acwr ?? "–"}</span>
+        <span class="chip ${esc(carga.semaforo)}" style="align-self:flex-start;margin-top:6px">${esc(zonaLabel(carga.zona))}</span>
+      </div>
+      ${activa
+        ? `<div class="card kpi"><span class="k-label">Lesion</span>
+           <span class="k-value accent" style="font-size:1.2rem">${esc(activa.diagnostico)}</span>
+           <span class="muted" style="font-size:.8rem;margin-top:4px">activa desde ${esc(activa.fecha_lesion)}</span></div>`
+        : kpi("Lesiones", "Sin lesion activa")}
+    </div>
+
+    <div class="grid cols-2 section-gap" style="align-items:start">
+      <div class="card">
+        <h3>Tu carga · ultimos 28 dias</h3>
+        <div style="height:220px"><canvas id="ch-mia"></canvas></div>
+      </div>
+      <div class="card">
+        <h3>Ultima hidratacion</h3>
+        ${ultH ? `
+          <div class="metric-row" style="display:flex;align-items:flex-end;gap:14px;margin-bottom:10px">
+            <span class="k-value tnum" style="font-family:'Barlow Semi Condensed';font-weight:700;font-size:2rem">${ultH.porcentaje_perdida}%</span>
+            <span class="muted">${esc(ultH.fecha)} · deficit ${ultH.deficit_kg} kg
+            <br><span class="chip ${esc(ultH.semaforo)}">${esc(ultH.clasificacion)}</span></span>
+          </div>
+          ${ultH.deficit_kg > 0 ? `<p class="muted" style="font-size:.88rem">Reposicion sugerida: <b style="color:var(--verde)">${ultH.reposicion_min_l}–${ultH.reposicion_max_l} L</b></p>` : ""}
+          <a class="btn ghost" href="#/hidratacion" style="display:inline-block;margin-top:8px;text-decoration:none">Cargar nuevo registro</a>
+        ` : `<p class="muted">Todavia no cargaste ningun registro de hidratacion.</p>
+          <a class="btn" href="#/hidratacion" style="display:inline-block;margin-top:8px;text-decoration:none">Cargar el primero</a>`}
+      </div>
+    </div>`;
+
+  graficoCargaDiaria("ch-mia", carga.serie_diaria, { thin: true });
+}
+
+/* ======================================================================
+   CARGA
+   ====================================================================== */
+
 function graficoCargaDiaria(canvasId, serie, opts = {}) {
   const valores = serie.map(d => d.carga);
   const conCarga = valores.filter(v => v > 0);
   const media = conCarga.length ? Math.round(conCarga.reduce((a, b) => a + b, 0) / conCarga.length) : 0;
-  const etiquetas = serie.map(d => {
-    const [, m, dd] = d.fecha.split("-");
-    return `${dd}/${m}`;
-  });
   const datasets = [{
-    type: "bar",
-    label: "Carga",
-    data: valores,
+    type: "bar", label: "Carga", data: valores,
     backgroundColor: valores.map(v => colorPorCarga(v, media)),
-    borderRadius: 3,
-    maxBarThickness: opts.thin ? 14 : 40,
-    order: 2,
+    borderRadius: 3, maxBarThickness: opts.thin ? 14 : 40, order: 2,
   }];
   if (media) {
     datasets.push({
-      type: "line",
-      label: "Promedio",
-      data: valores.map(() => media),
-      borderColor: COL.ink,
-      borderDash: [4, 4],
-      borderWidth: 1,
-      pointRadius: 0,
-      order: 1,
+      type: "line", label: "Promedio", data: valores.map(() => media),
+      borderColor: COL.ink, borderDash: [4, 4], borderWidth: 1, pointRadius: 0, order: 1,
     });
   }
   chart(canvasId, {
-    data: { labels: etiquetas, datasets },
+    data: { labels: serie.map(d => ddmm(d.fecha)), datasets },
     options: {
-      responsive: true,
-      maintainAspectRatio: false,
+      responsive: true, maintainAspectRatio: false,
       scales: {
         x: { ...ejeSinGrilla, ticks: { maxRotation: 0, autoSkip: true } },
         y: { ...ejeGrillaTenue, beginAtZero: true },
       },
       plugins: {
-        tooltip: {
-          filter: c => c.dataset.label === "Carga",
-          callbacks: { label: c => c.parsed.y + " UA" },
-        },
+        tooltip: { filter: c => c.dataset.label === "Carga", callbacks: { label: c => c.parsed.y + " UA" } },
       },
     },
   });
 }
-
-function kpi(label, value, cls = "") {
-  return `<div class="card kpi">
-    <span class="k-label">${esc(label)}</span>
-    <span class="k-value ${cls} tnum">${esc(value)}</span>
-  </div>`;
-}
-
-/* ---- Plantel ---- */
-
-async function screenPlantel() {
-  crumbs("Plantel");
-  const [js, lesiones] = await Promise.all([
-    jugadores(),
-    API.get("/lesiones?activas=1"),
-  ]);
-  const lesionadosIds = new Set(lesiones.map(l => l.jugador_id));
-
-  view().innerHTML = pageHead("Plantel", "Vista general de los jugadores") + `
-    <div class="card">
-      ${js.length ? `<table class="table">
-        <thead><tr><th>#</th><th>Jugador</th><th>Posicion sec.</th><th>Edad</th><th style="text-align:right">Estado</th></tr></thead>
-        <tbody>${js.map(j => {
-          const lesionado = lesionadosIds.has(j.id);
-          return `<tr class="clickable" data-id="${j.id}">
-            <td class="num-col">${esc(j.numero_camiseta ?? "–")}</td>
-            <td><div class="cell-player">
-              <span class="avatar">${esc(iniciales(j.nombre, j.apellido).toUpperCase())}</span>
-              <div><div class="cp-name">${esc(nombreJugador(j))}</div>
-              <div class="cp-pos">${esc(j.posicion_principal || "—")}</div></div>
-            </div></td>
-            <td class="muted">${esc(j.posicion_secundaria || "—")}</td>
-            <td class="tnum">${esc(j.edad ?? "—")}</td>
-            <td style="text-align:right">
-              <span class="chip ${lesionado ? "rojo" : "verde"}">${lesionado ? "Lesionado" : "Disponible"}</span>
-            </td>
-          </tr>`;
-        }).join("")}</tbody>
-      </table>` : `<div class="empty"><div class="big">Todavia no hay jugadores</div>
-        <p>Corre <code>python seed.py</code> para cargar un plantel de ejemplo, o registra jugadores desde la app.</p></div>`}
-    </div>`;
-
-  view().querySelectorAll("tr.clickable").forEach(tr => {
-    tr.addEventListener("click", () => alert("La ficha del jugador llega en el proximo paso."));
-  });
-}
-
-/* ---- Carga del plantel ---- */
 
 let cargaDias = 7;
 
@@ -357,7 +397,7 @@ async function screenCarga() {
   ].filter(z => z[1] > 0);
   const conDatos = r.por_jugador.length - d.sin_datos;
 
-  view().innerHTML = pageHead("Carga del plantel", "Carga interna del equipo · seguimiento y distribucion") + `
+  view().innerHTML = pageHead("Carga del plantel", "Carga interna del equipo · ACWR y distribucion") + `
     <div class="grid cols-3">
       ${kpi(`Carga total · ${cargaDias} d`, r.totales.carga_total.toLocaleString("es") + " UA")}
       ${kpi("Carga media / jugador", r.totales.carga_promedio.toLocaleString("es") + " UA")}
@@ -376,7 +416,7 @@ async function screenCarga() {
       </div>
       <div class="card">
         <h3>Distribucion por ACWR</h3>
-        <p class="card-sub">Ratio carga aguda (7 d) : cronica (28 d).</p>
+        <p class="card-sub">Ratio carga aguda (7 d) : cronica (EWMA 28 d).</p>
         <div style="display:flex;gap:20px;align-items:center">
           <div style="position:relative;width:150px;height:150px;flex:0 0 auto">
             <canvas id="ch-dist"></canvas>
@@ -386,13 +426,8 @@ async function screenCarga() {
             </div>
           </div>
           <div style="flex:1">
-            ${zonas.map(z => `<div style="display:flex;justify-content:space-between;padding:5px 0;font-size:.86rem">
-              <span><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${z[2]};margin-right:8px"></span>${z[0]}</span>
-              <b class="tnum">${z[1]}</b>
-            </div>`).join("")}
-            ${d.sin_datos ? `<div style="display:flex;justify-content:space-between;padding:5px 0;font-size:.86rem" class="muted">
-              <span><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${COL.surface};margin-right:8px"></span>Sin datos</span>
-              <b class="tnum">${d.sin_datos}</b></div>` : ""}
+            ${zonas.map(z => leyenda(z[0], z[1], z[2])).join("")}
+            ${d.sin_datos ? leyenda("Sin datos", d.sin_datos, COL.surface, true) : ""}
           </div>
         </div>
       </div>
@@ -405,16 +440,18 @@ async function screenCarga() {
       </div>
       <div class="card">
         <h3>Jugadores con mayor carga · 7 dias</h3>
-        <table class="table"><thead><tr><th>Jugador</th><th style="text-align:right">Carga</th><th style="text-align:right">ACWR</th><th style="text-align:right">Zona</th></tr></thead>
-        <tbody>${r.por_jugador.slice(0, 8).map(p => `<tr>
-          <td><div class="cell-player">
-            <span class="avatar">${esc(p.nombre.split(" ").map(x => x[0]).join("").toUpperCase())}</span>
-            <div><div class="cp-name">${esc(p.nombre)}</div><div class="cp-pos">${esc(p.posicion || "—")}</div></div>
-          </div></td>
-          <td style="text-align:right"><b class="tnum">${p.carga_7d.toLocaleString("es")}</b></td>
-          <td style="text-align:right" class="tnum">${p.acwr ?? "–"}</td>
-          <td style="text-align:right"><span class="chip ${esc(p.semaforo)}">${esc(p.zona.replace("_", " "))}</span></td>
-        </tr>`).join("")}</tbody></table>
+        <div class="table-wrap"><table class="table">
+          <thead><tr><th>Jugador</th><th style="text-align:right">Carga</th><th style="text-align:right">ACWR</th><th style="text-align:right">Zona</th></tr></thead>
+          <tbody>${r.por_jugador.slice(0, 10).map(p => `<tr>
+            <td><div class="cell-player">
+              <span class="avatar">${esc(inicialesDe(p.nombre))}</span>
+              <div><div class="cp-name">${esc(p.nombre)}</div><div class="cp-pos">${esc(p.posicion || "—")}</div></div>
+            </div></td>
+            <td style="text-align:right"><b class="tnum">${p.carga_7d.toLocaleString("es")}</b></td>
+            <td style="text-align:right" class="tnum">${p.acwr_ewma ?? "–"}<span class="muted" style="font-size:.75rem"> · RA ${p.acwr_ra ?? "–"}</span></td>
+            <td style="text-align:right"><span class="chip ${esc(p.semaforo)}">${esc(zonaLabel(p.zona))}</span></td>
+          </tr>`).join("")}</tbody>
+        </table></div>
       </div>
     </div>`;
 
@@ -430,23 +467,17 @@ async function screenCarga() {
         borderWidth: 0,
       }],
     },
-    options: { responsive: true, maintainAspectRatio: false, cutout: "70%", plugins: { tooltip: { enabled: true } } },
+    options: { responsive: true, maintainAspectRatio: false, cutout: "70%" },
   });
 
   chart("ch-pos", {
     type: "bar",
     data: {
       labels: r.por_posicion.map(p => p.posicion),
-      datasets: [{
-        data: r.por_posicion.map(p => p.carga_promedio),
-        backgroundColor: COL.accent,
-        borderRadius: 3,
-        maxBarThickness: 18,
-      }],
+      datasets: [{ data: r.por_posicion.map(p => p.carga_promedio), backgroundColor: COL.accent, borderRadius: 3, maxBarThickness: 18 }],
     },
     options: {
-      indexAxis: "y",
-      responsive: true, maintainAspectRatio: false,
+      indexAxis: "y", responsive: true, maintainAspectRatio: false,
       scales: { x: { ...ejeGrillaTenue, beginAtZero: true }, y: ejeSinGrilla },
       plugins: { tooltip: { callbacks: { label: c => c.parsed.x + " UA" } } },
     },
@@ -460,27 +491,110 @@ async function screenCarga() {
   });
 }
 
-/* ---- Registro de sesion ---- */
+function leyenda(nombre, valor, color, dim) {
+  return `<div style="display:flex;justify-content:space-between;padding:5px 0;font-size:.86rem" class="${dim ? "muted" : ""}">
+    <span><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${color};margin-right:8px"></span>${esc(nombre)}</span>
+    <b class="tnum">${valor}</b>
+  </div>`;
+}
+
+async function screenMiCarga() {
+  crumbs("Mi carga");
+  const [carga, ses] = await Promise.all([
+    API.get("/carga/jugador/" + yo()),
+    API.get("/sesiones/" + yo()),
+  ]);
+  const acwr = carga.acwr_ewma ?? carga.acwr_ra;
+
+  view().innerHTML = pageHead("Mi carga", "Tu carga interna y relacion aguda:cronica") + `
+    <div class="grid cols-3">
+      ${kpi("Carga 7 dias", carga.carga_7d.toLocaleString("es") + " UA")}
+      ${kpi("Carga 28 dias", carga.carga_28d.toLocaleString("es") + " UA")}
+      <div class="card kpi">
+        <span class="k-label">ACWR (EWMA / RA)</span>
+        <span class="k-value tnum">${acwr ?? "–"} <span class="muted" style="font-size:1rem">/ ${carga.acwr_ra ?? "–"}</span></span>
+        <span class="chip ${esc(carga.semaforo)}" style="align-self:flex-start;margin-top:6px">${esc(zonaLabel(carga.zona))}</span>
+      </div>
+    </div>
+    <div class="card section-gap">
+      <h3>Carga diaria · ultimos 28 dias</h3>
+      <div style="height:240px"><canvas id="ch-mc"></canvas></div>
+    </div>
+    <div class="card section-gap">
+      <h3>Ultimas sesiones</h3>
+      ${ses.length ? `<div class="table-wrap"><table class="table">
+        <thead><tr><th>Fecha</th><th>Tipo</th><th>Duracion</th><th>sRPE</th><th>Sueno</th><th style="text-align:right">Carga</th></tr></thead>
+        <tbody>${ses.slice().reverse().slice(0, 12).map(s => `<tr>
+          <td class="tnum muted">${esc(s.fecha)}</td>
+          <td>${esc(s.tipo)}</td>
+          <td class="tnum">${esc(s.duracion_min)} min</td>
+          <td class="tnum">${esc(s.srpe)}</td>
+          <td class="muted">${esc(s.sueno || "—")}</td>
+          <td style="text-align:right"><b class="tnum">${esc(s.carga_total)} UA</b></td>
+        </tr>`).join("")}</tbody>
+      </table></div>` : `<p class="muted">Todavia no registraste sesiones. <a href="#/registro">Registrar la primera</a>.</p>`}
+    </div>`;
+
+  graficoCargaDiaria("ch-mc", carga.serie_diaria, { thin: true });
+}
+
+/* ======================================================================
+   PLANTEL (CT)
+   ====================================================================== */
+
+async function screenPlantel() {
+  crumbs("Plantel");
+  const [js, lesiones] = await Promise.all([jugadores(), API.get("/lesiones?activas=1")]);
+  const lesionadosIds = new Set(lesiones.map(l => l.jugador_id));
+
+  view().innerHTML = pageHead("Plantel", "Vista general de los jugadores") + `
+    <div class="card">
+      ${js.length ? `<div class="table-wrap"><table class="table">
+        <thead><tr><th>#</th><th>Jugador</th><th>Posicion sec.</th><th>Edad</th><th style="text-align:right">Estado</th></tr></thead>
+        <tbody>${js.map(j => {
+          const lesionado = lesionadosIds.has(j.id);
+          return `<tr>
+            <td class="num-col">${esc(j.numero_camiseta ?? "–")}</td>
+            <td><div class="cell-player">
+              <span class="avatar">${esc(iniciales(j.nombre, j.apellido))}</span>
+              <div><div class="cp-name">${esc(nombreJugador(j))}</div>
+              <div class="cp-pos">${esc(j.posicion_principal || "—")}</div></div>
+            </div></td>
+            <td class="muted">${esc(j.posicion_secundaria || "—")}</td>
+            <td class="tnum">${esc(j.edad ?? "—")}</td>
+            <td style="text-align:right"><span class="chip ${lesionado ? "rojo" : "verde"}">${lesionado ? "Lesionado" : "Disponible"}</span></td>
+          </tr>`;
+        }).join("")}</tbody>
+      </table></div>` : `<div class="empty"><div class="big">Todavia no hay jugadores</div>
+        <p>Corre <code>python seed.py</code> para cargar un plantel de ejemplo.</p></div>`}
+    </div>`;
+}
+
+/* ======================================================================
+   REGISTRO DE SESION (jugador)
+   ====================================================================== */
 
 async function screenRegistro() {
-  crumbs("Registro de sesion");
-  const js = await jugadores();
+  crumbs("Registrar sesion");
   let tipo = "Entrenamiento";
 
-  view().innerHTML = pageHead("Registro de sesion", "Carga interna (duracion x sRPE)") + `
+  view().innerHTML = pageHead("Registrar sesion", "Tu carga interna del dia (duracion x sRPE)") + `
     <div class="grid cols-2" style="align-items:start">
       <div class="card">
         <h3>Datos de la sesion</h3>
         <form id="form-sesion" class="form-grid">
-          <div class="field"><label>Jugador</label>${selectJugadores(js)}</div>
           <div class="field"><label>Fecha</label><input id="f-fecha" type="date" value="${hoyISO()}" required></div>
-          <div class="field full"><label>Tipo de sesion</label>
-            <div class="seg" id="seg-tipo">
-              ${TIPOS_SESION.map(t => `<button type="button" data-t="${t}" class="${t === tipo ? "on" : ""}">${t}</button>`).join("")}
-            </div>
+          <div class="field"><label>Tipo</label>
+            <select id="f-tipo">${TIPOS_SESION.map(t => `<option>${t}</option>`).join("")}</select>
           </div>
           <div class="field"><label>Duracion (min)</label><input id="f-dur" type="number" min="1" value="90" required></div>
           <div class="field"><label>sRPE (1–10)</label><input id="f-srpe" type="number" min="1" max="10" value="7" required></div>
+          <div class="field full"><label>Calidad de sueno (noche previa)</label>
+            <select id="f-sueno">
+              <option value="">— elegir —</option>
+              ${SUENO_OPCIONES.map(s => `<option>${esc(s)}</option>`).join("")}
+            </select>
+          </div>
           <div class="field full"><label>Carga calculada</label>
             <div class="calc-box"><span class="cb-value tnum" id="calc">630</span>
             <span class="cb-formula" id="calc-f">90 min x 7 = 630 UA</span></div>
@@ -491,8 +605,8 @@ async function screenRegistro() {
         </form>
       </div>
       <div class="card">
-        <h3>Ultimas sesiones del jugador</h3>
-        <div id="hist-sesiones"><p class="muted">Elegi un jugador para ver su historial.</p></div>
+        <h3>Tus ultimas sesiones</h3>
+        <div id="hist-sesiones"><p class="muted">Cargando…</p></div>
       </div>
     </div>`;
 
@@ -505,33 +619,27 @@ async function screenRegistro() {
   dur.addEventListener("input", recalcular);
   srpe.addEventListener("input", recalcular);
 
-  $("#seg-tipo").addEventListener("click", e => {
-    const b = e.target.closest("button"); if (!b) return;
-    tipo = b.dataset.t;
-    $("#seg-tipo").querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b));
-  });
+  $("#f-tipo").addEventListener("change", e => { tipo = e.target.value; });
 
-  $("#f-jugador").addEventListener("change", e => cargarHistSesiones(e.target.value));
+  cargarHistSesiones();
 
   $("#form-sesion").addEventListener("submit", async ev => {
     ev.preventDefault();
-    const jid = $("#f-jugador").value;
-    if (!jid) return;
     const msg = $("#sesion-msg");
     try {
       const r = await API.post("/sesiones", {
-        jugador_id: +jid,
         fecha: $("#f-fecha").value,
         tipo,
         duracion_min: +dur.value,
         srpe: +srpe.value,
+        sueno: $("#f-sueno").value || null,
         notas: $("#f-notas").value,
       });
       msg.className = "notice ok";
       msg.textContent = `Sesion guardada · ${r.carga_total} UA`;
       msg.hidden = false;
       $("#f-notas").value = "";
-      cargarHistSesiones(jid);
+      cargarHistSesiones();
     } catch (e) {
       msg.className = "notice err";
       msg.textContent = e.message;
@@ -540,26 +648,26 @@ async function screenRegistro() {
   });
 }
 
-async function cargarHistSesiones(jid) {
+async function cargarHistSesiones() {
   const box = $("#hist-sesiones");
-  if (!jid) { box.innerHTML = `<p class="muted">Elegi un jugador para ver su historial.</p>`; return; }
-  const ses = await API.get("/sesiones/" + jid);
-  if (!ses.length) { box.innerHTML = `<p class="muted">Sin sesiones registradas.</p>`; return; }
-  box.innerHTML = `<table class="table"><tbody>${
+  const ses = await API.get("/sesiones/" + yo());
+  if (!ses.length) { box.innerHTML = `<p class="muted">Todavia no registraste sesiones.</p>`; return; }
+  box.innerHTML = `<div class="table-wrap"><table class="table"><tbody>${
     ses.slice().reverse().slice(0, 8).map(s => `<tr>
       <td class="tnum muted">${esc(s.fecha)}</td>
       <td>${esc(s.tipo)}</td>
       <td class="tnum">${esc(s.duracion_min)}′ · sRPE ${esc(s.srpe)}</td>
       <td style="text-align:right"><b class="tnum">${esc(s.carga_total)} UA</b></td>
     </tr>`).join("")
-  }</tbody></table>`;
+  }</tbody></table></div>`;
 }
 
-/* ---- Hidratacion ---- */
+/* ======================================================================
+   HIDRATACION (jugador)
+   ====================================================================== */
 
 async function screenHidratacion() {
-  crumbs("Hidratacion", "Registro");
-  const js = await jugadores();
+  crumbs("Hidratacion");
   let contexto = "partido";
 
   view().innerHTML = pageHead("Hidratacion", "Peso pre/post y reposicion (ACSM / AMSSM)") + `
@@ -567,9 +675,8 @@ async function screenHidratacion() {
       <div class="card">
         <h3>Nuevo registro</h3>
         <form id="form-hidra" class="form-grid">
-          <div class="field"><label>Jugador</label>${selectJugadores(js)}</div>
           <div class="field"><label>Fecha</label><input id="h-fecha" type="date" value="${hoyISO()}" required></div>
-          <div class="field full"><label>Contexto</label>
+          <div class="field"><label>Contexto</label>
             <div class="seg" id="seg-ctx">
               <button type="button" data-c="partido" class="on">Partido</button>
               <button type="button" data-c="entrenamiento">Entrenamiento</button>
@@ -604,8 +711,7 @@ async function screenHidratacion() {
   const pre = $("#h-pre"), post = $("#h-post"), calc = $("#h-calc");
   function preview() {
     const a = +pre.value, b = +post.value;
-    if (a > 0 && b > 0 && a > b) calc.textContent = ((a - b) / a * 100).toFixed(2) + "%";
-    else calc.textContent = "–";
+    calc.textContent = (a > 0 && b > 0 && a > b) ? ((a - b) / a * 100).toFixed(2) + "%" : "–";
   }
   pre.addEventListener("input", preview);
   post.addEventListener("input", preview);
@@ -616,17 +722,14 @@ async function screenHidratacion() {
     $("#seg-ctx").querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b));
   });
 
-  $("#f-jugador").addEventListener("change", e => cargarHistHidra(e.target.value));
+  cargarHistHidra();
 
   $("#form-hidra").addEventListener("submit", async ev => {
     ev.preventDefault();
-    const jid = $("#f-jugador").value;
-    if (!jid) return;
     const msg = $("#hidra-msg");
     msg.hidden = true;
     try {
       const r = await API.post("/hidratacion", {
-        jugador_id: +jid,
         fecha: $("#h-fecha").value,
         contexto,
         peso_pre_kg: +pre.value,
@@ -638,7 +741,7 @@ async function screenHidratacion() {
         notas: $("#h-notas").value,
       });
       renderHidraResultado(r);
-      cargarHistHidra(jid);
+      cargarHistHidra();
     } catch (e) {
       msg.textContent = e.message;
       msg.hidden = false;
@@ -647,7 +750,6 @@ async function screenHidratacion() {
 }
 
 function renderHidraResultado(r) {
-  const pct = r.porcentaje_perdida;
   const etiqueta = {
     sin_perdida: "Sin perdida", minima: "Minima", moderada: "Moderada",
     marcada: "Marcada", severa: "Severa",
@@ -656,7 +758,7 @@ function renderHidraResultado(r) {
   $("#hidra-out").innerHTML = `
     <div class="result ${esc(r.semaforo)}">
       <div class="r-row">
-        <span class="r-big tnum">${pct}<span style="font-size:1rem">%</span></span>
+        <span class="r-big tnum">${r.porcentaje_perdida}<span style="font-size:1rem">%</span></span>
         <span class="muted">peso corporal perdido<br>deficit ${r.deficit_kg} kg · <span class="chip ${esc(r.semaforo)}">${esc(etiqueta)}</span></span>
       </div>
       ${r.deficit_kg > 0 ? `<div class="calc-box">
@@ -669,12 +771,11 @@ function renderHidraResultado(r) {
     </div>`;
 }
 
-async function cargarHistHidra(jid) {
+async function cargarHistHidra() {
   const box = $("#hidra-hist");
   if (!box) return;
-  if (!jid) { box.innerHTML = ""; return; }
-  const hist = await API.get("/hidratacion/" + jid);
-  if (!hist.length) { box.innerHTML = `<p class="muted">Sin registros previos de este jugador.</p>`; return; }
+  const hist = await API.get("/hidratacion/" + yo());
+  if (!hist.length) { box.innerHTML = `<p class="muted">Sin registros previos.</p>`; return; }
 
   const rows = hist.slice(0, 6).map(h => `<tr>
     <td class="tnum muted">${esc(h.fecha)}</td>
@@ -685,33 +786,97 @@ async function cargarHistHidra(jid) {
 
   box.innerHTML = `<h3 style="font-size:.95rem">Historial · % de perdida</h3>
     ${hist.length > 1 ? `<div style="height:150px;margin-bottom:10px"><canvas id="ch-hidra"></canvas></div>` : ""}
-    <table class="table"><tbody>${rows}</tbody></table>`;
+    <div class="table-wrap"><table class="table"><tbody>${rows}</tbody></table></div>`;
 
   if (hist.length > 1) {
     const orden = hist.slice().reverse();
     chart("ch-hidra", {
       type: "line",
       data: {
-        labels: orden.map(h => { const [, m, d] = h.fecha.split("-"); return `${d}/${m}`; }),
+        labels: orden.map(h => ddmm(h.fecha)),
         datasets: [{
           data: orden.map(h => h.porcentaje_perdida),
-          borderColor: COL.accent,
-          backgroundColor: "transparent",
+          borderColor: COL.accent, backgroundColor: "transparent",
           pointBackgroundColor: orden.map(h => COL[h.semaforo] || COL.ink),
-          pointRadius: 4,
-          tension: 0.3,
+          pointRadius: 4, tension: 0.3,
         }],
       },
       options: {
         responsive: true, maintainAspectRatio: false,
-        scales: {
-          x: ejeSinGrilla,
-          y: { ...ejeGrillaTenue, beginAtZero: true, ticks: { callback: v => v + "%" } },
-        },
+        scales: { x: ejeSinGrilla, y: { ...ejeGrillaTenue, beginAtZero: true, ticks: { callback: v => v + "%" } } },
         plugins: { tooltip: { callbacks: { label: c => c.parsed.y + "% perdido" } } },
       },
     });
   }
+}
+
+/* ======================================================================
+   MIS LESIONES (jugador)
+   ====================================================================== */
+
+async function screenMisLesiones() {
+  crumbs("Mis lesiones");
+  const lesiones = await API.get("/lesiones/" + yo());
+  const activas = lesiones.filter(l => l.estado === "activa");
+  const historial = lesiones.filter(l => l.estado === "recuperada");
+
+  view().innerHTML = pageHead("Mis lesiones", "Estado actual e historial") + `
+    ${activas.length ? activas.map(fichaLesionActiva).join("") : `<div class="card"><p class="muted">No tenes lesiones activas.</p></div>`}
+    <div class="card section-gap">
+      <h3>Historial</h3>
+      ${historial.length ? `<div class="table-wrap"><table class="table">
+        <thead><tr><th>Diagnostico</th><th>Zona</th><th>Fecha</th><th style="text-align:right">Dias de baja</th></tr></thead>
+        <tbody>${historial.map(l => `<tr>
+          <td>${esc(l.diagnostico)}</td>
+          <td class="muted">${esc(l.zona || "—")}${l.lado ? " · " + esc(l.lado) : ""}</td>
+          <td class="tnum muted">${esc(l.fecha_lesion)}</td>
+          <td style="text-align:right"><b class="tnum">${l.dias_baja ?? "—"}</b></td>
+        </tr>`).join("")}</tbody>
+      </table></div>` : `<p class="muted">Sin lesiones previas registradas.</p>`}
+    </div>`;
+}
+
+function fichaLesionActiva(l) {
+  const dias = Math.max(0, Math.round((Date.now() - new Date(l.fecha_lesion)) / 86400000));
+  const est = l.dias_estimados || 0;
+  const pct = est ? Math.min(100, Math.round((dias / est) * 100)) : 0;
+  return `<div class="card" style="border-color:color-mix(in srgb, var(--rojo) 40%, var(--line))">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
+      <h3 style="margin:0">${esc(l.diagnostico)}</h3>
+      <span class="chip rojo">Activa</span>
+    </div>
+    <p class="muted" style="font-size:.9rem">${esc(l.zona || "")}${l.lado ? " · " + esc(l.lado) : ""}${l.mecanismo ? " · " + esc(l.mecanismo) : ""} · desde ${esc(l.fecha_lesion)}</p>
+    ${est ? `<div class="track"><i style="width:${pct}%"></i></div>
+      <div class="track-l"><span>Dia ${dias}</span><span>estimado ~${est} dias</span></div>` : ""}
+    ${l.notas ? `<p class="muted" style="font-size:.85rem;margin-top:10px">${esc(l.notas)}</p>` : ""}
+  </div>`;
+}
+
+/* ======================================================================
+   CONFIG / MI PERFIL
+   ====================================================================== */
+
+async function screenConfig() {
+  crumbs(esCT() ? "Configuracion" : "Mi perfil");
+  const p = state.perfil;
+  view().innerHTML = pageHead(esCT() ? "Configuracion" : "Mi perfil", esCT() ? "Cuenta y preferencias" : "Tus datos") + `
+    <div class="card" style="max-width:520px">
+      <div style="display:flex;gap:16px;align-items:center;margin-bottom:16px">
+        <span class="avatar" style="width:56px;height:56px;font-size:1.1rem">${esc(iniciales(p.nombre, p.apellido))}</span>
+        <div>
+          <div style="font-family:'Barlow Semi Condensed';font-weight:700;font-size:1.3rem">${esc(nombreJugador(p))}</div>
+          <div class="muted">${esc(p.email)} · ${esCT() ? "Cuerpo tecnico" : "Jugador"}</div>
+        </div>
+      </div>
+      ${!esCT() ? `
+        <div class="kv"><span class="muted">Edad</span><b>${esc(p.edad ?? "—")}</b></div>
+        <div class="kv"><span class="muted">Altura</span><b>${esc(p.altura_cm ?? "—")} cm</b></div>
+        <div class="kv"><span class="muted">Peso de referencia</span><b>${esc(p.peso_kg ?? "—")} kg</b></div>
+        <div class="kv"><span class="muted">Posicion principal</span><b>${esc(p.posicion_principal ?? "—")}</b></div>
+        <div class="kv"><span class="muted">Posicion secundaria</span><b>${esc(p.posicion_secundaria ?? "—")}</b></div>
+        <div class="kv"><span class="muted">Numero</span><b>${esc(p.numero_camiseta ?? "—")}</b></div>
+      ` : `<p class="muted">La edicion de cuentas y roles llega en el proximo paso.</p>`}
+    </div>`;
 }
 
 /* -------------------------------------------------------------- arranque -- */

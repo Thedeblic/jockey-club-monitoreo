@@ -73,6 +73,10 @@ def main():
 
     # Sesiones de los ultimos 21 dias
     tipos = ["Entrenamiento", "Entrenamiento", "Entrenamiento", "Partido", "Gimnasio"]
+    suenos = [
+        "Menos de 6 h / Poco reparador", "6-7 h / Regular",
+        "7-8 h / Reparador", "7-8 h / Reparador", "Mas de 8 h / Muy reparador",
+    ]
     total_ses = 0
     for jid in ids:
         if db.sesiones_de_jugador(jid):
@@ -82,7 +86,10 @@ def main():
                 fecha = (date.today() - timedelta(days=d)).isoformat()
                 dur = random.choice([60, 75, 90, 90, 100])
                 srpe = random.randint(3, 9)
-                db.insertar_sesion(jid, fecha, random.choice(tipos), dur, srpe, "")
+                db.insertar_sesion(
+                    jid, fecha, random.choice(tipos), dur, srpe, "",
+                    sueno=random.choice(suenos),
+                )
                 total_ses += 1
     print(f"Sesiones creadas: {total_ses} (ultimos 35 dias)")
 
