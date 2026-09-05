@@ -173,6 +173,7 @@ def ruta_obtener_jugador(jugador_id):
         return jsonify({"error": "Jugador no encontrado"}), 404
     jugador["sesiones"] = db.sesiones_de_jugador(jugador_id)
     jugador["lesiones"] = db.lesiones_de_jugador(jugador_id)
+    jugador["hidratacion"] = db.hidratacion_de_jugador(jugador_id)
     return jsonify(jugador)
 
 
@@ -198,6 +199,52 @@ def ruta_crear_sesion():
 @app.route("/api/sesiones/<int:jugador_id>", methods=["GET"])
 def ruta_sesiones_de_jugador(jugador_id):
     return jsonify(db.sesiones_de_jugador(jugador_id))
+
+
+# ---------------------------------------------------------------------------
+# Hidratacion (peso pre/post)
+# ---------------------------------------------------------------------------
+
+
+@app.route("/api/hidratacion", methods=["GET"])
+def ruta_listar_hidratacion():
+    return jsonify(db.listar_hidratacion())
+
+
+@app.route("/api/hidratacion", methods=["POST"])
+def ruta_crear_hidratacion():
+    data = request.get_json() or {}
+
+    faltantes = [c for c in ("jugador_id", "fecha", "peso_pre_kg", "peso_post_kg") if data.get(c) in (None, "")]
+    if faltantes:
+        return jsonify({"error": f"Faltan datos: {', '.join(faltantes)}"}), 400
+
+    try:
+        pre = float(data["peso_pre_kg"])
+        post = float(data["peso_post_kg"])
+    except (TypeError, ValueError):
+        return jsonify({"error": "El peso debe ser un numero"}), 400
+    if pre <= 0 or post <= 0:
+        return jsonify({"error": "El peso debe ser mayor a 0"}), 400
+
+    nueva_id = db.insertar_hidratacion(
+        jugador_id=data["jugador_id"],
+        fecha=data["fecha"],
+        peso_pre_kg=pre,
+        peso_post_kg=post,
+        contexto=data.get("contexto", "partido"),
+        liquido_ingerido_l=data.get("liquido_ingerido_l"),
+        duracion_min=data.get("duracion_min"),
+        sudador_salado=data.get("sudador_salado", False),
+        horas_prox_competencia=data.get("horas_prox_competencia"),
+        notas=data.get("notas", ""),
+    )
+    return jsonify(db.obtener_hidratacion(nueva_id)), 201
+
+
+@app.route("/api/hidratacion/<int:jugador_id>", methods=["GET"])
+def ruta_hidratacion_de_jugador(jugador_id):
+    return jsonify(db.hidratacion_de_jugador(jugador_id))
 
 
 # ---------------------------------------------------------------------------

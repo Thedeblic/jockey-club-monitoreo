@@ -71,6 +71,24 @@ def crear_tablas():
     """)
 
     cursor.execute("""
+        CREATE TABLE IF NOT EXISTS hidratacion (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            jugador_id INTEGER NOT NULL,
+            fecha TEXT NOT NULL,
+            contexto TEXT DEFAULT 'partido',
+            peso_pre_kg REAL NOT NULL,
+            peso_post_kg REAL NOT NULL,
+            liquido_ingerido_l REAL,
+            duracion_min INTEGER,
+            sudador_salado INTEGER DEFAULT 0,
+            horas_prox_competencia REAL,
+            notas TEXT,
+            creado_en TEXT DEFAULT (datetime('now')),
+            FOREIGN KEY (jugador_id) REFERENCES usuarios (id)
+        )
+    """)
+
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS lesiones (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             jugador_id INTEGER NOT NULL,
@@ -283,6 +301,162 @@ def sesiones_de_jugador(jugador_id):
     filas = cursor.fetchall()
     conn.close()
     return [dict(fila) for fila in filas]
+
+
+# ---------------------------------------------------------------------------
+# Hidratacion (peso pre/post partido)
+# ---------------------------------------------------------------------------
+#
+# Base clinica (ACSM / AMSSM Team Physician Consensus Statement):
+#   - Deficit = peso_pre - peso_post  (aprox. liquido perdido por sudor)
+#   - % perdida de peso corporal = deficit / peso_pre * 100
+#   - Reposicion recomendada = 125-150% del deficit (1,25-1,5 L por kg perdido)
+#   - No restringir sodio; bebida con electrolitos retiene mejor el liquido
+#   - Ingesta fraccionada (no en bolo), dentro de las primeras 6 h
+#   - > 5% de perdida o proxima competencia < 24 h => reposicion intensiva
+#   - Desaconsejar alcohol (efecto diuretico)
+
+# Umbrales de % de perdida de peso corporal. Editables: son criterio clinico.
+HIDRATACION_MINIMA = 2.0   # < 2%   -> verde
+HIDRATACION_MODERADA = 3.0  # 2-3%   -> amarillo
+HIDRATACION_MARCADA = 5.0   # 3-5%   -> naranja
+#                             >= 5%  -> rojo (severa)
+
+
+def _clasificar_hidratacion(porcentaje):
+    if porcentaje < HIDRATACION_MINIMA:
+        return "minima", "verde"
+    if porcentaje < HIDRATACION_MODERADA:
+        return "moderada", "amarillo"
+    if porcentaje < HIDRATACION_MARCADA:
+        return "marcada", "naranja"
+    return "severa", "rojo"
+
+
+def _armar_hidratacion(fila):
+    h = dict(fila)
+    pre = h["peso_pre_kg"]
+    deficit = round(pre - h["peso_post_kg"], 3)
+    ingerido = h.get("liquido_ingerido_l") or 0
+    horas_prox = h.get("horas_prox_competencia")
+
+    h["deficit_kg"] = deficit
+    h["recuperacion_rapida"] = horas_prox is not None and horas_prox < 24
+
+    if deficit <= 0 or not pre:
+        h["porcentaje_perdida"] = 0.0
+        h["clasificacion"] = "sin_perdida"
+        h["semaforo"] = "verde"
+        h["reposicion_min_l"] = 0.0
+        h["reposicion_max_l"] = 0.0
+    else:
+        h["porcentaje_perdida"] = round(deficit / pre * 100, 2)
+        h["clasificacion"], h["semaforo"] = _clasificar_hidratacion(h["porcentaje_perdida"])
+        h["reposicion_min_l"] = round(deficit * 1.25, 2)
+        h["reposicion_max_l"] = round(deficit * 1.5, 2)
+
+    if h.get("duracion_min"):
+        h["tasa_sudoracion_l_h"] = round(
+            (max(deficit, 0) + ingerido) / (h["duracion_min"] / 60), 2
+        )
+    else:
+        h["tasa_sudoracion_l_h"] = None
+
+    recomendaciones = []
+    if deficit > 0:
+        recomendaciones.append(
+            f"Reponer 125-150% del deficit: {h['reposicion_min_l']}-{h['reposicion_max_l']} L "
+            "en las proximas 6 h, de forma fraccionada (no en bolo)."
+        )
+        recomendaciones.append(
+            "No restringir sodio: sumar sodio dietetico o bebida con electrolitos "
+            "para retener el liquido y restaurar el volumen plasmatico."
+        )
+    if h["clasificacion"] == "severa" or h["recuperacion_rapida"]:
+        recomendaciones.append(
+            "Perdida severa (>5%) o proxima competencia <24 h: reposicion intensiva "
+            "de liquidos y electrolitos."
+        )
+    if h.get("sudador_salado"):
+        recomendaciones.append(
+            "Sudador salado: la bebida deportiva con electrolitos restaura el balance "
+            "hidrico hasta 3x mas rapido que el agua sola."
+        )
+    if deficit > 0:
+        recomendaciones.append(
+            "Evitar el consumo excesivo de alcohol en la recuperacion (efecto diuretico)."
+        )
+    if horas_prox is not None:
+        recomendaciones.append(
+            "Suspender la ingesta extra 0,5-1 h antes de la proxima competencia."
+        )
+    h["recomendaciones"] = recomendaciones
+    return h
+
+
+def insertar_hidratacion(
+    jugador_id,
+    fecha,
+    peso_pre_kg,
+    peso_post_kg,
+    contexto="partido",
+    liquido_ingerido_l=None,
+    duracion_min=None,
+    sudador_salado=False,
+    horas_prox_competencia=None,
+    notas="",
+):
+    conn = get_conexion()
+    cursor = conn.cursor()
+    cursor.execute(
+        """INSERT INTO hidratacion
+           (jugador_id, fecha, contexto, peso_pre_kg, peso_post_kg, liquido_ingerido_l,
+            duracion_min, sudador_salado, horas_prox_competencia, notas)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            jugador_id,
+            fecha,
+            contexto,
+            peso_pre_kg,
+            peso_post_kg,
+            liquido_ingerido_l,
+            duracion_min,
+            1 if sudador_salado else 0,
+            horas_prox_competencia,
+            notas,
+        ),
+    )
+    conn.commit()
+    nueva_id = cursor.lastrowid
+    conn.close()
+    return nueva_id
+
+
+def obtener_hidratacion(registro_id):
+    conn = get_conexion()
+    fila = conn.execute(
+        "SELECT * FROM hidratacion WHERE id = ?", (registro_id,)
+    ).fetchone()
+    conn.close()
+    return _armar_hidratacion(fila) if fila else None
+
+
+def hidratacion_de_jugador(jugador_id):
+    conn = get_conexion()
+    filas = conn.execute(
+        "SELECT * FROM hidratacion WHERE jugador_id = ? ORDER BY fecha DESC", (jugador_id,)
+    ).fetchall()
+    conn.close()
+    return [_armar_hidratacion(fila) for fila in filas]
+
+
+def listar_hidratacion():
+    conn = get_conexion()
+    filas = conn.execute(
+        "SELECT * FROM hidratacion ORDER BY fecha DESC"
+    ).fetchall()
+    conn.close()
+    return [_armar_hidratacion(fila) for fila in filas]
 
 
 # ---------------------------------------------------------------------------
