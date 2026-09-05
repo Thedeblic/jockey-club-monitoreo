@@ -5,7 +5,8 @@
       "name": "jockey-club-monitoreo",
       "runtimeExecutable": "python",
       "runtimeArgs": ["app.py"],
-      "port": 5000
+      "port": 5000,
+      "env": { "FLASK_DEBUG": "1" }
     }
   ]
 }

@@ -95,7 +95,41 @@ input, select, textarea, button { font: inherit; color: inherit; }
   position: sticky;
   top: 0;
   height: 100vh;
+  z-index: 50;
 }
+
+.nav-toggle {
+  display: none;
+  background: none; border: 1px solid var(--line); color: var(--ink);
+  width: 38px; height: 38px; border-radius: var(--radius-sm);
+  font-size: 1.15rem; cursor: pointer; flex: 0 0 auto;
+  place-items: center;
+}
+.nav-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 45; }
+
+@media (max-width: 900px) {
+  #app.ready { grid-template-columns: 1fr; }
+  .sidebar {
+    position: fixed; top: 0; left: 0; bottom: 0; width: 258px;
+    height: 100dvh; transform: translateX(-100%);
+    transition: transform .22s ease;
+    box-shadow: 0 0 40px rgba(0,0,0,.5);
+  }
+  .sidebar.open { transform: translateX(0); }
+  .nav-toggle { display: grid; }
+  .view { padding: 18px 15px 64px; }
+  .topbar { padding: 11px 15px; }
+  .page-head { gap: 12px; margin-bottom: 20px; }
+  .page-head .glyph { display: none; }
+  .card { padding: 16px; }
+  .crumbs { font-size: .82rem; }
+  .who { gap: 7px; font-size: .82rem; }
+  .who #who-name { display: none; }
+}
+@media (min-width: 901px) {
+  .nav-backdrop { display: none !important; }
+}
+@media (prefers-reduced-motion: reduce) { .sidebar { transition: none; } }
 
 .brand {
   display: flex;
@@ -584,9 +618,10 @@ input, select, textarea, button { font: inherit; color: inherit; }
   min-height: 100%;
   display: grid;
   place-items: center;
-  padding: 30px;
+  padding: 24px 16px;
 }
 #login[hidden] { display: none; }
+@media (max-width: 480px) { #login .box { padding: 30px 22px; } }
 #login .box {
   width: 100%;
   max-width: 372px;
@@ -629,14 +664,18 @@ input, select, textarea, button { font: inherit; color: inherit; }
    ========================================================================== */
 
 .cal-bar {
-  display: flex; align-items: center; gap: 12px; margin-bottom: 16px;
+  display: flex; align-items: center; gap: 10px; margin-bottom: 16px; flex-wrap: wrap;
 }
 .cal-bar .cal-month {
   font-family: "Archivo Narrow", sans-serif;
   font-weight: 700; font-size: 1.3rem; text-transform: capitalize;
-  min-width: 190px;
+  min-width: 150px;
 }
-.cal-bar .spacer { flex: 1; }
+.cal-bar .spacer { flex: 1; min-width: 0; }
+@media (max-width: 560px) {
+  .cal-bar .cal-month { min-width: 0; flex: 1 0 100%; order: -1; font-size: 1.15rem; }
+  .cal-bar .seg { order: 2; }
+}
 .cal-nav {
   background: var(--surface); border: 1px solid var(--line); color: var(--ink);
   width: 34px; height: 34px; border-radius: var(--radius-sm); cursor: pointer;
@@ -754,7 +793,8 @@ input, select, textarea, button { font: inherit; color: inherit; }
 }
 .modal h3 { font-size: 1.15rem; margin-bottom: 16px; }
 .modal .form-grid { gap: 12px; }
-.modal-actions { display: flex; gap: 10px; margin-top: 8px; }
-.modal-actions .spacer { flex: 1; }
+.modal-actions { display: flex; gap: 10px; margin-top: 8px; flex-wrap: wrap; }
+.modal-actions .spacer { flex: 1; min-width: 0; }
+.modal-actions .btn { flex: 1 0 auto; }
 .btn.danger { background: none; border: 1px solid color-mix(in srgb, var(--rojo) 50%, var(--line)); color: var(--rojo); }
 .btn.danger:hover { background: color-mix(in srgb, var(--rojo) 12%, transparent); }

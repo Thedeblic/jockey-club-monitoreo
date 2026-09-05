@@ -643,4 +643,7 @@ def ruta_eliminar_evento(evento_id):
 db.crear_tablas()
 
 if __name__ == "__main__":
-    app.run(debug=True, host="0.0.0.0", port=5000)
+    # El modo debug (recarga automatica + consola de errores) solo se activa
+    # si pones FLASK_DEBUG=1. Para el piloto en red local dejalo apagado.
+    debug = os.environ.get("FLASK_DEBUG", "").lower() in ("1", "true", "si")
+    app.run(debug=debug, host="0.0.0.0", port=5000)

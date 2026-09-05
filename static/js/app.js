@@ -178,13 +178,31 @@ function kpi(label, value, cls = "") {
 
 /* ---------------------------------------------------------------- auth ---- */
 
+const esLocal = ["localhost", "127.0.0.1"].includes(location.hostname);
+
+function cerrarDrawer() {
+  $(".sidebar").classList.remove("open");
+  $("#nav-backdrop").hidden = true;
+}
+
 async function boot() {
-  $("#seed-hint").textContent = SEED_HINT;
-  $("#seed-hint").hidden = false;
+  if (esLocal) {
+    $("#seed-hint").textContent = SEED_HINT;
+    $("#seed-hint").hidden = false;
+  }
 
   $("#login-form").addEventListener("submit", onLogin);
   $("#btn-logout").addEventListener("click", onLogout);
   window.addEventListener("hashchange", router);
+
+  // menu lateral en pantallas chicas
+  $("#nav-toggle").addEventListener("click", () => {
+    const abrir = !$(".sidebar").classList.contains("open");
+    $(".sidebar").classList.toggle("open", abrir);
+    $("#nav-backdrop").hidden = !abrir;
+  });
+  $("#nav-backdrop").addEventListener("click", cerrarDrawer);
+  $("#nav").addEventListener("click", e => { if (e.target.closest("a")) cerrarDrawer(); });
 
   if (API.token) {
     try {
