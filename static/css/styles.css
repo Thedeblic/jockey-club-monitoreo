@@ -386,6 +386,33 @@ input, select, textarea, button { font: inherit; color: inherit; }
 .track-l { display: flex; justify-content: space-between; font-size: .74rem; color: var(--ink-dim); }
 .track-l, .track-l span { font-variant-numeric: tabular-nums; }
 
+/* --- continuo de retorno (RTS) --- */
+.rts { display: flex; align-items: center; gap: 4px; margin: 4px 0; flex-wrap: wrap; }
+.rts-step { display: flex; flex-direction: column; align-items: center; gap: 6px; flex: 1; min-width: 84px; text-align: center; }
+.rts-dot {
+  width: 26px; height: 26px; border-radius: 50%;
+  display: grid; place-items: center;
+  font-family: "Barlow Semi Condensed"; font-weight: 700; font-size: .85rem;
+  border: 1.5px solid var(--line); color: var(--ink-faint); background: var(--surface);
+}
+.rts-step.done .rts-dot { border-color: var(--verde); color: var(--verde); }
+.rts-step.now .rts-dot { border-color: var(--accent); background: var(--accent); color: #fff; }
+.rts-lbl { font-size: .74rem; color: var(--ink-dim); line-height: 1.25; }
+.rts-step.now .rts-lbl { color: var(--ink); font-weight: 600; }
+.rts-line { flex: 0 0 16px; height: 1.5px; background: var(--line); }
+
+/* --- timeline de la lesion --- */
+.tl { display: flex; flex-direction: column; }
+.tl-item { padding: 11px 0 11px 16px; border-left: 2px solid var(--line); position: relative; }
+.tl-item::before { content: ""; position: absolute; left: -5px; top: 15px; width: 8px; height: 8px; border-radius: 50%; background: var(--ink-faint); }
+.tl-item.estado { border-left-color: var(--accent); }
+.tl-item.estado::before { background: var(--accent); }
+.tl-meta { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; margin-bottom: 3px; }
+.tl-fecha { font-size: .72rem; color: var(--ink-faint); }
+.tl-autor { font-size: .82rem; font-weight: 600; }
+.tl-texto { font-size: .9rem; color: var(--ink-dim); }
+.tl-item.estado .tl-texto { color: var(--ink); }
+
 .empty {
   text-align: center;
   padding: 50px 20px;

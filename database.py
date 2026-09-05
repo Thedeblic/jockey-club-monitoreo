@@ -9,8 +9,47 @@ DB_NAME = "jockey.db"
 # Puestos validos para el handball (posicion principal / secundaria)
 POSICIONES = ["Arquero", "Lateral", "Central", "Extremo", "Pivote"]
 
-# Roles dentro de la app
-ROLES = ["jugador", "cuerpo_tecnico"]
+# Roles dentro de la app. El cuerpo tecnico se subdivide segun el manual
+# (red horizontal): cada sub-rol tiene sus permisos.
+ROL_JUGADOR = "jugador"
+ROLES_CT = ["entrenador", "preparador_fisico", "medico", "fisioterapeuta", "cuerpo_tecnico"]
+# 'cuerpo_tecnico' queda como rol generico/legacy con todos los permisos del CT.
+ROLES_LESIONES = ["medico", "fisioterapeuta", "cuerpo_tecnico"]  # departamento medico
+ROLES_CALENDARIO = ["entrenador", "preparador_fisico", "cuerpo_tecnico"]  # planificacion
+ROLES = [ROL_JUGADOR] + ROLES_CT
+
+ROL_LABEL = {
+    "jugador": "Jugador",
+    "entrenador": "Entrenador",
+    "preparador_fisico": "Preparador fisico",
+    "medico": "Medico deportologo",
+    "fisioterapeuta": "Fisioterapeuta",
+    "cuerpo_tecnico": "Cuerpo tecnico",
+}
+
+
+def es_ct(rol):
+    return rol in ROLES_CT
+
+
+# Continuo de retorno al juego (RTS). Reemplaza el "alta" binaria.
+ESTADOS_LESION = ["lesionado", "disponible_entrenar", "disponible_competir", "alta"]
+ESTADO_LESION_LABEL = {
+    "lesionado": "Lesionado",
+    "disponible_entrenar": "Disponible para entrenar",
+    "disponible_competir": "Disponible para competir",
+    "alta": "Alta deportiva",
+}
+ESTADO_LESION_SEMAFORO = {
+    "lesionado": "rojo",
+    "disponible_entrenar": "amarillo",
+    "disponible_competir": "verde",
+    "alta": "gris",
+}
+# Que sub-rol puede llevar la lesion a cada estado (segun el manual):
+#   fisioterapeuta -> alta de la Fase 1 (disponible_entrenar) y recaidas
+#   medico         -> habilita competir y cierra el caso
+ESTADO_REQUIERE_MEDICO = {"disponible_competir", "alta"}
 
 # Tipos de evento del calendario
 TIPOS_EVENTO = ["entrenamiento", "partido", "gimnasio", "recuperacion", "otro"]
@@ -114,7 +153,33 @@ def crear_tablas():
             dias_estimados INTEGER,
             fecha_alta TEXT,
             notas TEXT,
+            estado TEXT DEFAULT 'lesionado',
+            criterios_proxima TEXT,
+            fecha_disponible_competir TEXT,
             FOREIGN KEY (jugador_id) REFERENCES usuarios (id)
+        )
+    """)
+    _agregar_columna(cursor, "lesiones", "estado", "TEXT DEFAULT 'lesionado'")
+    _agregar_columna(cursor, "lesiones", "criterios_proxima", "TEXT")
+    _agregar_columna(cursor, "lesiones", "fecha_disponible_competir", "TEXT")
+    # bases viejas: las que tenian fecha_alta pasan a estado 'alta'
+    cursor.execute(
+        "UPDATE lesiones SET estado = 'alta' WHERE fecha_alta IS NOT NULL AND (estado IS NULL OR estado = 'lesionado')"
+    )
+    cursor.execute("UPDATE lesiones SET estado = 'lesionado' WHERE estado IS NULL")
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS lesion_notas (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            lesion_id INTEGER NOT NULL,
+            fecha TEXT DEFAULT (datetime('now')),
+            autor_id INTEGER,
+            autor_nombre TEXT,
+            autor_rol TEXT,
+            tipo TEXT DEFAULT 'nota',
+            estado TEXT,
+            texto TEXT,
+            FOREIGN KEY (lesion_id) REFERENCES lesiones (id)
         )
     """)
 
@@ -663,13 +728,34 @@ def _dias_entre(fecha_desde, fecha_hasta):
     return (d2 - d1).days
 
 
+LIDER_FASE = {
+    "lesionado": "Fisioterapeuta",
+    "disponible_entrenar": "Medico deportologo",
+    "disponible_competir": "Cuerpo tecnico + jugador",
+    "alta": "-",
+}
+
+
 def _armar_lesion(fila):
     lesion = dict(fila)
-    if lesion.get("fecha_alta"):
-        lesion["estado"] = "recuperada"
-        lesion["dias_baja"] = _dias_entre(lesion["fecha_lesion"], lesion["fecha_alta"])
+    estado = lesion.get("estado") or "lesionado"
+    lesion["estado"] = estado
+    lesion["estado_label"] = ESTADO_LESION_LABEL.get(estado, estado)
+    lesion["semaforo"] = ESTADO_LESION_SEMAFORO.get(estado, "gris")
+    lesion["activa"] = estado != "alta"
+    lesion["fase_idx"] = ESTADOS_LESION.index(estado) if estado in ESTADOS_LESION else 0
+    lesion["lider_actual"] = LIDER_FASE.get(estado, "-")
+
+    hoy = date.today().isoformat()
+    lesion["dia_actual"] = _dias_entre(lesion["fecha_lesion"], hoy) if lesion["activa"] else None
+
+    # dias perdidos de competencia: hasta que quedo disponible para competir
+    hasta = lesion.get("fecha_disponible_competir") or lesion.get("fecha_alta")
+    if hasta:
+        lesion["dias_baja"] = _dias_entre(lesion["fecha_lesion"], hasta)
+    elif lesion["activa"]:
+        lesion["dias_baja"] = _dias_entre(lesion["fecha_lesion"], hoy)
     else:
-        lesion["estado"] = "activa"
         lesion["dias_baja"] = None
     return lesion
 
@@ -685,45 +771,136 @@ def insertar_lesion(
     gravedad,
     dias_estimados,
     notas,
+    criterios_proxima=None,
+    autor=None,
 ):
     conn = get_conexion()
     cursor = conn.cursor()
     cursor.execute(
         """INSERT INTO lesiones
            (jugador_id, fecha_lesion, diagnostico, zona, lado, mecanismo,
-            contacto, gravedad, dias_estimados, notas)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            contacto, gravedad, dias_estimados, notas, criterios_proxima, estado)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'lesionado')""",
         (
-            jugador_id,
-            fecha_lesion,
-            diagnostico,
-            zona,
-            lado,
-            mecanismo,
-            1 if contacto else 0,
-            gravedad,
-            dias_estimados,
-            notas,
+            jugador_id, fecha_lesion, diagnostico, zona, lado, mecanismo,
+            1 if contacto else 0, gravedad, dias_estimados, notas, criterios_proxima,
+        ),
+    )
+    nueva_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    _nota_lesion(nueva_id, autor, tipo="estado", estado="lesionado",
+                 texto="Lesion registrada")
+    return nueva_id
+
+
+CAMPOS_LESION_EDITABLES = [
+    "diagnostico", "zona", "lado", "mecanismo", "contacto",
+    "gravedad", "dias_estimados", "criterios_proxima", "notas",
+]
+
+
+def actualizar_lesion(lesion_id, datos):
+    cambios = {k: datos[k] for k in CAMPOS_LESION_EDITABLES if k in datos}
+    if "contacto" in cambios:
+        cambios["contacto"] = 1 if cambios["contacto"] else 0
+    if not cambios:
+        return obtener_lesion(lesion_id)
+    asignaciones = ", ".join(f"{c} = ?" for c in cambios)
+    conn = get_conexion()
+    conn.execute(
+        f"UPDATE lesiones SET {asignaciones} WHERE id = ?",
+        list(cambios.values()) + [lesion_id],
+    )
+    conn.commit()
+    conn.close()
+    return obtener_lesion(lesion_id)
+
+
+def cambiar_estado_lesion(lesion_id, nuevo_estado, autor=None, nota=None):
+    hoy = date.today().isoformat()
+    conn = get_conexion()
+    sets = ["estado = ?"]
+    vals = [nuevo_estado]
+    if nuevo_estado == "disponible_competir":
+        sets.append("fecha_disponible_competir = COALESCE(fecha_disponible_competir, ?)")
+        vals.append(hoy)
+    if nuevo_estado == "alta":
+        sets.append("fecha_alta = ?")
+        vals.append(hoy)
+        sets.append("fecha_disponible_competir = COALESCE(fecha_disponible_competir, ?)")
+        vals.append(hoy)
+    if nuevo_estado in ("lesionado", "disponible_entrenar"):
+        sets.append("fecha_alta = NULL")
+    vals.append(lesion_id)
+    conn.execute(f"UPDATE lesiones SET {', '.join(sets)} WHERE id = ?", vals)
+    conn.commit()
+    conn.close()
+    _nota_lesion(lesion_id, autor, tipo="estado", estado=nuevo_estado,
+                 texto=f"Pasa a: {ESTADO_LESION_LABEL.get(nuevo_estado, nuevo_estado)}")
+    if nota:
+        _nota_lesion(lesion_id, autor, tipo="nota", texto=nota)
+    return obtener_lesion(lesion_id)
+
+
+def _nota_lesion(lesion_id, autor, tipo="nota", estado=None, texto=None):
+    conn = get_conexion()
+    conn.execute(
+        """INSERT INTO lesion_notas (lesion_id, autor_id, autor_nombre, autor_rol, tipo, estado, texto)
+           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        (
+            lesion_id,
+            autor["id"] if autor else None,
+            f'{autor["nombre"]} {autor["apellido"]}'.strip() if autor else "Sistema",
+            autor["rol"] if autor else None,
+            tipo, estado, texto,
         ),
     )
     conn.commit()
-    nueva_id = cursor.lastrowid
     conn.close()
-    return nueva_id
+
+
+def agregar_nota_lesion(lesion_id, autor, texto):
+    _nota_lesion(lesion_id, autor, tipo="nota", texto=texto)
+
+
+def notas_de_lesion(lesion_id):
+    conn = get_conexion()
+    filas = conn.execute(
+        "SELECT * FROM lesion_notas WHERE lesion_id = ? ORDER BY fecha DESC, id DESC",
+        (lesion_id,),
+    ).fetchall()
+    conn.close()
+    return [dict(f) for f in filas]
 
 
 def listar_lesiones(solo_activas=False):
     conn = get_conexion()
     cursor = conn.cursor()
     if solo_activas:
-        cursor.execute(
-            "SELECT * FROM lesiones WHERE fecha_alta IS NULL ORDER BY fecha_lesion DESC"
-        )
+        cursor.execute("SELECT * FROM lesiones WHERE estado != 'alta' ORDER BY fecha_lesion DESC")
     else:
         cursor.execute("SELECT * FROM lesiones ORDER BY fecha_lesion DESC")
     filas = cursor.fetchall()
     conn.close()
-    return [_armar_lesion(fila) for fila in filas]
+    lesiones = [_armar_lesion(f) for f in filas]
+    if lesiones:
+        nombres = _nombres_jugadores([l["jugador_id"] for l in lesiones])
+        for l in lesiones:
+            l["jugador_nombre"] = nombres.get(l["jugador_id"], "?")
+    return lesiones
+
+
+def _nombres_jugadores(ids):
+    if not ids:
+        return {}
+    conn = get_conexion()
+    q = ",".join("?" * len(set(ids)))
+    filas = conn.execute(
+        f"SELECT id, nombre, apellido FROM usuarios WHERE id IN ({q})", list(set(ids))
+    ).fetchall()
+    conn.close()
+    return {f["id"]: f'{f["nombre"]} {f["apellido"]}'.strip() for f in filas}
 
 
 def lesiones_de_jugador(jugador_id):
@@ -744,17 +921,11 @@ def obtener_lesion(lesion_id):
     cursor.execute("SELECT * FROM lesiones WHERE id = ?", (lesion_id,))
     fila = cursor.fetchone()
     conn.close()
-    return _armar_lesion(fila) if fila else None
-
-
-def registrar_alta(lesion_id, fecha_alta):
-    conn = get_conexion()
-    cursor = conn.cursor()
-    cursor.execute(
-        "UPDATE lesiones SET fecha_alta = ? WHERE id = ?", (fecha_alta, lesion_id)
-    )
-    conn.commit()
-    conn.close()
+    if not fila:
+        return None
+    lesion = _armar_lesion(fila)
+    lesion["jugador_nombre"] = _nombres_jugadores([lesion["jugador_id"]]).get(lesion["jugador_id"], "?")
+    return lesion
 
 
 # ---------------------------------------------------------------------------

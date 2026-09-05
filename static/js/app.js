@@ -7,7 +7,7 @@
      jugador        -> registra SU carga/hidratacion, ve solo lo suyo
    ========================================================================== */
 
-const SEED_HINT = "Prueba: ct@jockey.com / handball2025  ·  jugador: facundo.gomez@jockey.com / jugador2025";
+const SEED_HINT = "Staff (pass handball2025): entrenador@ · pf@ · medico@ · fisio@ · ct@jockey.com  —  jugador: facundo.gomez@jockey.com / jugador2025";
 const POSICIONES = ["Arquero", "Lateral", "Central", "Extremo", "Pivote"];
 const TIPOS_SESION = ["Entrenamiento", "Partido", "Gimnasio", "Recuperacion", "Otro"];
 const SUENO_OPCIONES = [
@@ -25,9 +25,33 @@ const DOW = ["Lun", "Mar", "Mie", "Jue", "Vie", "Sab", "Dom"];
 const ICON_CONO = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" style="vertical-align:-2px"><path d="M12 3 5 20h14L12 3Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M8.6 12h6.8M7.3 16h9.4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>`;
 const ICON_BALON = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" style="vertical-align:-2px"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.8"/><path d="M12 3c3 3 3 15 0 18M3 12c3-3 15-3 18 0M6 6c4 1 8 1 12 0M6 18c4-1 8-1 12 0" stroke="currentColor" stroke-width="1.4"/></svg>`;
 
+const ROLES_CT = ["entrenador", "preparador_fisico", "medico", "fisioterapeuta", "cuerpo_tecnico"];
+const ROLES_LESIONES = ["medico", "fisioterapeuta", "cuerpo_tecnico"];
+const ROLES_CALENDARIO = ["entrenador", "preparador_fisico", "cuerpo_tecnico"];
+const ROL_LABEL = {
+  jugador: "Jugador", entrenador: "Entrenador", preparador_fisico: "Preparador fisico",
+  medico: "Medico deportologo", fisioterapeuta: "Fisioterapeuta", cuerpo_tecnico: "Cuerpo tecnico",
+};
+
 const NAV = {
-  cuerpo_tecnico: [
+  entrenador: [
     ["inicio", "Inicio"], ["plantel", "Plantel"], ["carga", "Carga"], ["registro", "Registro"],
+    ["sep"], ["calendario", "Calendario"], ["informes", "Informes"], ["config", "Mi perfil"],
+  ],
+  preparador_fisico: [
+    ["inicio", "Inicio"], ["plantel", "Plantel"], ["carga", "Carga"], ["registro", "Registro"],
+    ["sep"], ["calendario", "Calendario"], ["informes", "Informes"], ["config", "Mi perfil"],
+  ],
+  medico: [
+    ["inicio", "Inicio"], ["plantel", "Plantel"], ["lesiones", "Lesiones"], ["carga", "Carga"],
+    ["sep"], ["calendario", "Calendario"], ["config", "Mi perfil"],
+  ],
+  fisioterapeuta: [
+    ["inicio", "Inicio"], ["plantel", "Plantel"], ["lesiones", "Lesiones"], ["carga", "Carga"],
+    ["sep"], ["calendario", "Calendario"], ["config", "Mi perfil"],
+  ],
+  cuerpo_tecnico: [
+    ["inicio", "Inicio"], ["plantel", "Plantel"], ["carga", "Carga"], ["lesiones", "Lesiones"], ["registro", "Registro"],
     ["sep"], ["calendario", "Calendario"], ["informes", "Informes"], ["config", "Configuracion"],
   ],
   jugador: [
@@ -36,13 +60,18 @@ const NAV = {
     ["sep"], ["calendario", "Calendario"], ["config", "Mi perfil"],
   ],
 };
-const ACCESO = {
-  cuerpo_tecnico: ["inicio", "plantel", "jugador", "carga", "registro", "calendario", "informes", "config"],
-  jugador: ["inicio", "micarga", "registro", "hidratacion", "mislesiones", "calendario", "config"],
-};
+const ACCESO = {};
+for (const rol of Object.keys(NAV)) {
+  ACCESO[rol] = NAV[rol].filter(i => i[0] !== "sep").map(i => i[0]);
+}
+// rutas extra (no van en el menu pero se acceden desde otras pantallas)
+ROLES_CT.forEach(r => ACCESO[r].push("jugador"));
+ROLES_LESIONES.forEach(r => { if (!ACCESO[r].includes("lesiones")) ACCESO[r].push("lesiones"); ACCESO[r].push("lesion"); });
 
 const state = { perfil: null, jugadores: null };
-const esCT = () => state.perfil.rol === "cuerpo_tecnico";
+const esCT = () => ROLES_CT.includes(state.perfil.rol);
+const esLesiones = () => ROLES_LESIONES.includes(state.perfil.rol);
+const esCalendarioEditor = () => ROLES_CALENDARIO.includes(state.perfil.rol);
 const yo = () => state.perfil.id;
 
 /* -------------------------------------------------------------- charts ---- */
@@ -165,8 +194,8 @@ function showApp() {
   $("#login").hidden = true;
   $("#app").classList.add("ready");
   const p = state.perfil;
-  $("#who-av").textContent = (esCT() ? "CT" : iniciales(p.nombre, p.apellido)) || "–";
-  $("#who-name").textContent = esCT() ? "Cuerpo tecnico" : `${nombreJugador(p)} · Jugador`;
+  $("#who-av").textContent = iniciales(p.nombre, p.apellido) || "–";
+  $("#who-name").textContent = `${nombreJugador(p)} · ${ROL_LABEL[p.rol] || p.rol}`;
 
   $("#nav").innerHTML = (NAV[p.rol] || NAV.jugador).map(item => (
     item[0] === "sep" ? `<div class="sep"></div>`
@@ -211,6 +240,8 @@ const ROUTES = {
   registro: () => (esCT() ? screenRegistroEvento() : screenRegistro()),
   hidratacion: screenHidratacion,
   mislesiones: screenMisLesiones,
+  lesiones: screenLesionesCT,
+  lesion: screenLesionRTS,
   config: screenConfig,
   calendario: screenCalendario,
   informes: () => screenSoon("Informes", "Resumenes exportables por jugador y por plantel."),
@@ -258,18 +289,21 @@ async function screenInicioCT() {
     API.get("/lesiones?activas=1"),
     API.get("/carga/resumen?dias=7"),
   ]);
-  const lesionadosIds = new Set(lesiones.map(l => l.jugador_id));
+  // "no disponible" = lesionado o entrenando adaptado (todavia no habilitado a competir)
+  const fueraIds = new Set(lesiones.filter(l => ["lesionado", "disponible_entrenar"].includes(l.estado)).map(l => l.jugador_id));
+  const lesionPorJugador = {};
+  lesiones.forEach(l => { lesionPorJugador[l.jugador_id] = l; });
   const total = js.length;
   const enRiesgo = resumen.por_jugador.filter(p => ["alta", "muy_alta"].includes(p.zona));
-  const disponibles = total - lesionadosIds.size;
+  const disponibles = total - fueraIds.size;
   const pctDisp = total ? Math.round((disponibles / total) * 100) : 100;
-  const observar = js.filter(j => lesionadosIds.has(j.id));
+  const observar = js.filter(j => fueraIds.has(j.id)).map(j => ({ ...j, lesion: lesionPorJugador[j.id] }));
 
   view().innerHTML = pageHead("Panel del plantel", "Estado del plantel hoy") + `
     <div class="grid cols-4">
       ${kpi("Jugadores", total)}
       ${kpi("Disponibles", disponibles)}
-      ${kpi("En alerta", lesionadosIds.size + enRiesgo.length, (lesionadosIds.size + enRiesgo.length) ? "accent" : "")}
+      ${kpi("En alerta", fueraIds.size + enRiesgo.length, (fueraIds.size + enRiesgo.length) ? "accent" : "")}
       ${kpi("Disponibilidad", pctDisp + "%")}
     </div>
     <div class="grid cols-2 section-gap" style="align-items:start">
@@ -290,8 +324,11 @@ async function screenInicioCT() {
 function filaObservar(lesionados, enRiesgo) {
   const items = [
     ...lesionados.map(j => ({
-      nombre: nombreJugador(j), sub: (j.posicion_principal || "") + " · lesion activa",
-      ini: iniciales(j.nombre, j.apellido), chip: "rojo", txt: "Lesion",
+      nombre: nombreJugador(j),
+      sub: (j.posicion_principal || "") + " · " + (j.lesion ? j.lesion.estado_label.toLowerCase() : "lesion activa"),
+      ini: iniciales(j.nombre, j.apellido),
+      chip: j.lesion ? j.lesion.semaforo : "rojo",
+      txt: j.lesion && j.lesion.estado === "disponible_entrenar" ? "Adaptado" : "Lesion",
     })),
     ...enRiesgo.map(p => ({
       nombre: p.nombre, sub: (p.posicion || "") + " · ACWR " + (p.acwr_ewma ?? p.acwr_ra ?? "–"),
@@ -316,7 +353,7 @@ async function screenInicioJugador() {
     API.get("/hidratacion/" + yo()),
     API.get("/lesiones/" + yo()),
   ]);
-  const activa = lesiones.find(l => l.estado === "activa");
+  const activa = lesiones.find(l => l.activa);
   const ultH = hidra[0];
   const acwr = carga.acwr_ewma ?? carga.acwr_ra;
 
@@ -330,8 +367,8 @@ async function screenInicioJugador() {
       </div>
       ${activa
         ? `<div class="card kpi"><span class="k-label">Lesion</span>
-           <span class="k-value accent" style="font-size:1.2rem">${esc(activa.diagnostico)}</span>
-           <span class="muted" style="font-size:.8rem;margin-top:4px">activa desde ${esc(activa.fecha_lesion)}</span></div>`
+           <span class="k-value" style="font-size:1.15rem">${esc(activa.diagnostico)}</span>
+           <span class="chip ${esc(activa.semaforo)}" style="align-self:flex-start;margin-top:6px">${esc(activa.estado_label)}</span></div>`
         : kpi("Lesiones", "Sin lesion activa")}
     </div>
 
@@ -555,7 +592,9 @@ async function screenMiCarga() {
 async function screenPlantel() {
   crumbs("Plantel");
   const [js, lesiones] = await Promise.all([jugadores(), API.get("/lesiones?activas=1")]);
-  const lesionadosIds = new Set(lesiones.map(l => l.jugador_id));
+  const lesionPorJugador = {};
+  lesiones.forEach(l => { lesionPorJugador[l.jugador_id] = l; });
+  const fueraIds = new Set(lesiones.filter(l => ["lesionado", "disponible_entrenar"].includes(l.estado)).map(l => l.jugador_id));
 
   // conteo por posicion (orden fijo de la cancha)
   const conteo = Object.fromEntries(POSICIONES.map(p => [p, 0]));
@@ -566,8 +605,8 @@ async function screenPlantel() {
     <div class="grid cols-2" style="align-items:start">
       <div class="grid cols-2" style="align-content:start">
         ${kpi("Jugadores", js.length)}
-        ${kpi("Disponibles", js.length - lesionadosIds.size)}
-        ${kpi("Lesionados", lesionadosIds.size, lesionadosIds.size ? "accent" : "")}
+        ${kpi("Disponibles", js.length - fueraIds.size)}
+        ${kpi("No disponibles", fueraIds.size, fueraIds.size ? "accent" : "")}
         ${kpi("Posiciones cubiertas", posConDatos.length + " / " + POSICIONES.length)}
       </div>
       <div class="card">
@@ -581,7 +620,8 @@ async function screenPlantel() {
       ${js.length ? `<div class="table-wrap"><table class="table">
         <thead><tr><th>#</th><th>Jugador</th><th>Posicion sec.</th><th>Edad</th><th style="text-align:right">Estado</th></tr></thead>
         <tbody>${js.map(j => {
-          const lesionado = lesionadosIds.has(j.id);
+          const les = lesionPorJugador[j.id];
+          const chip = les ? `<span class="chip ${esc(les.semaforo)}">${esc(les.estado_label)}</span>` : `<span class="chip verde">Disponible</span>`;
           return `<tr class="clickable" data-id="${j.id}">
             <td class="num-col">${esc(j.numero_camiseta ?? "–")}</td>
             <td><div class="cell-player">
@@ -591,7 +631,7 @@ async function screenPlantel() {
             </div></td>
             <td class="muted">${esc(j.posicion_secundaria || "—")}</td>
             <td class="tnum">${esc(j.edad ?? "—")}</td>
-            <td style="text-align:right"><span class="chip ${lesionado ? "rojo" : "verde"}">${lesionado ? "Lesionado" : "Disponible"}</span></td>
+            <td style="text-align:right">${chip}</td>
           </tr>`;
         }).join("")}</tbody>
       </table></div>` : `<div class="empty"><div class="big">Todavia no hay jugadores</div>
@@ -630,9 +670,10 @@ async function screenFichaJugador(params) {
   ]);
   const acwr = carga.acwr_ewma ?? carga.acwr_ra;
   const lesiones = j.lesiones || [];
-  const activas = lesiones.filter(l => l.estado === "activa");
-  const historial = lesiones.filter(l => l.estado === "recuperada");
+  const activas = lesiones.filter(l => l.activa);
+  const historial = lesiones.filter(l => !l.activa);
   const hidra = j.hidratacion || [];
+  const puedeRTS = esLesiones();
 
   view().innerHTML = `
     <div class="page-head">
@@ -679,9 +720,9 @@ async function screenFichaJugador(params) {
       </div>
       <div class="card">
         <h3>Antecedentes de lesiones</h3>
-        ${activas.map(l => `<div class="notice err" style="margin-bottom:10px">
-          <b>${esc(l.diagnostico)}</b> · activa<br>
-          <span style="font-size:.85rem">${esc(l.zona || "")}${l.lado ? " · " + esc(l.lado) : ""} · desde ${esc(l.fecha_lesion)}</span>
+        ${activas.map(l => `<div class="notice ${l.semaforo === "rojo" ? "err" : "ok"}" style="margin-bottom:10px;cursor:pointer" data-lesion="${l.id}">
+          <b>${esc(l.diagnostico)}</b> · <span class="chip ${esc(l.semaforo)}">${esc(l.estado_label)}</span><br>
+          <span style="font-size:.85rem">${esc(l.zona || "")}${l.lado ? " · " + esc(l.lado) : ""} · dia ${l.dia_actual ?? "—"}${l.dias_estimados ? " de ~" + l.dias_estimados : ""}${puedeRTS ? " · abrir retorno ›" : ""}</span>
         </div>`).join("")}
         ${historial.length ? `<div class="table-wrap"><table class="table">
           <thead><tr><th>Diagnostico</th><th>Zona</th><th>Fecha</th><th style="text-align:right">Baja</th></tr></thead>
@@ -696,6 +737,11 @@ async function screenFichaJugador(params) {
     </div>`;
 
   graficoCargaDiaria("ch-fj-carga", carga.serie_diaria, { thin: true });
+
+  if (puedeRTS) {
+    view().querySelectorAll("[data-lesion]").forEach(el =>
+      el.addEventListener("click", () => { location.hash = "#/lesion/" + el.dataset.lesion; }));
+  }
 
   if (hidra.length > 1) {
     const orden = hidra.slice().reverse();
@@ -1082,10 +1128,10 @@ async function cargarHistHidra() {
 async function screenMisLesiones() {
   crumbs("Mis lesiones");
   const lesiones = await API.get("/lesiones/" + yo());
-  const activas = lesiones.filter(l => l.estado === "activa");
-  const historial = lesiones.filter(l => l.estado === "recuperada");
+  const activas = lesiones.filter(l => l.activa);
+  const historial = lesiones.filter(l => !l.activa);
 
-  view().innerHTML = pageHead("Mis lesiones", "Estado actual e historial") + `
+  view().innerHTML = pageHead("Mis lesiones", "Tu estado de retorno e historial") + `
     ${activas.length ? activas.map(fichaLesionActiva).join("") : `<div class="card"><p class="muted">No tenes lesiones activas.</p></div>`}
     <div class="card section-gap">
       <h3>Historial</h3>
@@ -1101,20 +1147,246 @@ async function screenMisLesiones() {
     </div>`;
 }
 
-function fichaLesionActiva(l) {
-  const dias = Math.max(0, Math.round((Date.now() - new Date(l.fecha_lesion)) / 86400000));
-  const est = l.dias_estimados || 0;
-  const pct = est ? Math.min(100, Math.round((dias / est) * 100)) : 0;
-  return `<div class="card" style="border-color:color-mix(in srgb, var(--rojo) 40%, var(--line))">
-    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
-      <h3 style="margin:0">${esc(l.diagnostico)}</h3>
-      <span class="chip rojo">Activa</span>
-    </div>
-    <p class="muted" style="font-size:.9rem">${esc(l.zona || "")}${l.lado ? " · " + esc(l.lado) : ""}${l.mecanismo ? " · " + esc(l.mecanismo) : ""} · desde ${esc(l.fecha_lesion)}</p>
-    ${est ? `<div class="track"><i style="width:${pct}%"></i></div>
-      <div class="track-l"><span>Dia ${dias}</span><span>estimado ~${est} dias</span></div>` : ""}
-    ${l.notas ? `<p class="muted" style="font-size:.85rem;margin-top:10px">${esc(l.notas)}</p>` : ""}
+const ESTADOS_RTS = ["lesionado", "disponible_entrenar", "disponible_competir", "alta"];
+const ESTADO_RTS_LABEL = {
+  lesionado: "Lesionado", disponible_entrenar: "Disponible para entrenar",
+  disponible_competir: "Disponible para competir", alta: "Alta deportiva",
+};
+const ESTADO_RTS_LIDER = {
+  lesionado: "Lidera el fisioterapeuta", disponible_entrenar: "Habilita el médico deportólogo",
+  disponible_competir: "Decisión compartida con el jugador", alta: "Caso cerrado",
+};
+
+function stepperRTS(estadoActual) {
+  const idx = ESTADOS_RTS.indexOf(estadoActual);
+  return `<div class="rts">
+    ${ESTADOS_RTS.map((e, i) => `<div class="rts-step ${i < idx ? "done" : ""} ${i === idx ? "now" : ""}">
+      <span class="rts-dot">${i < idx ? "✓" : i + 1}</span>
+      <span class="rts-lbl">${ESTADO_RTS_LABEL[e]}</span>
+    </div>`).join('<span class="rts-line"></span>')}
   </div>`;
+}
+
+function fichaLesionActiva(l) {
+  const est = l.dias_estimados || 0;
+  const dia = l.dia_actual ?? 0;
+  const pct = est ? Math.min(100, Math.round((dia / est) * 100)) : 0;
+  return `<div class="card" style="border-color:color-mix(in srgb, var(--${l.semaforo}) 45%, var(--line))">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px">
+      <h3 style="margin:0">${esc(l.diagnostico)}</h3>
+      <span class="chip ${esc(l.semaforo)}">${esc(l.estado_label)}</span>
+    </div>
+    <p class="muted" style="font-size:.9rem;margin-bottom:12px">${esc(l.zona || "")}${l.lado ? " · " + esc(l.lado) : ""}${l.mecanismo ? " · " + esc(l.mecanismo) : ""} · desde ${esc(l.fecha_lesion)}</p>
+    ${stepperRTS(l.estado)}
+    <p class="muted" style="font-size:.8rem;margin:8px 0 0">${ESTADO_RTS_LIDER[l.estado]}</p>
+    ${est ? `<div class="track"><i style="width:${pct}%;background:var(--${l.semaforo})"></i></div>
+      <div class="track-l"><span>Dia ${dia}</span><span>estimado ~${est} dias</span></div>` : ""}
+    ${l.criterios_proxima ? `<p style="font-size:.86rem;margin-top:10px"><b>Para avanzar:</b> ${esc(l.criterios_proxima)}</p>` : ""}
+  </div>`;
+}
+
+/* ======================================================================
+   LESIONES + RETORNO AL JUEGO  (departamento medico)
+   ====================================================================== */
+
+async function screenLesionesCT() {
+  crumbs("Lesiones");
+  const lesiones = await API.get("/lesiones");
+  const activas = lesiones.filter(l => l.activa);
+  const cerradas = lesiones.filter(l => !l.activa);
+  const puede = esLesiones();
+
+  const filaLes = l => `<tr class="clickable" data-id="${l.id}">
+    <td><div class="cell-player">
+      <span class="avatar">${esc(inicialesDe(l.jugador_nombre))}</span>
+      <div><div class="cp-name">${esc(l.jugador_nombre)}</div><div class="cp-pos">${esc(l.diagnostico)}</div></div>
+    </div></td>
+    <td class="muted">${esc(l.zona || "—")}${l.lado ? " · " + esc(l.lado) : ""}</td>
+    <td class="tnum">${l.activa ? "dia " + (l.dia_actual ?? "—") : (l.dias_baja ?? "—") + " d baja"}${l.dias_estimados && l.activa ? " / ~" + l.dias_estimados : ""}</td>
+    <td style="text-align:right"><span class="chip ${esc(l.semaforo)}">${esc(l.estado_label)}</span></td>
+  </tr>`;
+
+  view().innerHTML = pageHead("Lesiones y retorno al juego", "Continuo de retorno · departamento medico") + `
+    <div class="grid cols-4">
+      ${kpi("Activas", activas.length, activas.length ? "accent" : "")}
+      ${kpi("En rehabilitacion", activas.filter(l => l.estado === "lesionado").length)}
+      ${kpi("Entrenando adaptado", activas.filter(l => l.estado === "disponible_entrenar").length)}
+      ${kpi("Habilitados a competir", activas.filter(l => l.estado === "disponible_competir").length)}
+    </div>
+    <div class="card section-gap">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <h3 style="margin:0">Lesiones activas</h3>
+        ${puede ? `<button class="btn" id="btn-nueva-lesion">+ Registrar lesion</button>` : ""}
+      </div>
+      ${activas.length ? `<div class="table-wrap"><table class="table"><tbody>${activas.map(filaLes).join("")}</tbody></table></div>`
+        : `<p class="muted" style="margin-top:12px">Ningun jugador con lesion activa.</p>`}
+    </div>
+    ${cerradas.length ? `<div class="card section-gap">
+      <h3>Casos cerrados</h3>
+      <div class="table-wrap"><table class="table"><tbody>${cerradas.map(filaLes).join("")}</tbody></table></div>
+    </div>` : ""}`;
+
+  view().querySelectorAll("tr.clickable").forEach(tr =>
+    tr.addEventListener("click", () => { location.hash = "#/lesion/" + tr.dataset.id; }));
+  if (puede) $("#btn-nueva-lesion").addEventListener("click", modalNuevaLesion);
+}
+
+async function modalNuevaLesion() {
+  const js = await jugadores();
+  const bg = document.createElement("div");
+  bg.className = "modal-bg";
+  bg.innerHTML = `<div class="modal">
+    <h3>Registrar lesion</h3>
+    <div class="form-grid">
+      <div class="field full"><label>Jugador</label><select id="nl-jug" required>
+        <option value="">Elegir…</option>
+        ${js.map(j => `<option value="${j.id}">${esc(nombreJugador(j))} · ${esc(j.posicion_principal || "—")}</option>`).join("")}
+      </select></div>
+      <div class="field"><label>Fecha</label><input id="nl-fecha" type="date" value="${hoyISO()}"></div>
+      <div class="field"><label>Dias estimados</label><input id="nl-dias" type="number" min="1"></div>
+      <div class="field full"><label>Diagnostico</label><input id="nl-dx" placeholder="Ej: Desgarro isquiotibial grado 2"></div>
+      <div class="field"><label>Zona</label><input id="nl-zona"></div>
+      <div class="field"><label>Lado</label><select id="nl-lado"><option value="">—</option><option>izquierdo</option><option>derecho</option><option>bilateral</option></select></div>
+      <div class="field"><label>Mecanismo</label><select id="nl-mec"><option value="">—</option><option>entrenamiento</option><option>partido</option><option>gimnasio</option><option>fuera del club</option></select></div>
+      <div class="field" style="justify-content:flex-end"><label style="display:flex;gap:8px;align-items:center;text-transform:none;letter-spacing:0"><input id="nl-contacto" type="checkbox" style="width:auto"> Con contacto</label></div>
+      <div class="field full"><label>Criterios para pasar a la proxima fase</label><textarea id="nl-crit" placeholder="Fuerza, dolor, tests funcionales…"></textarea></div>
+      <div class="field full"><div id="nl-msg" class="notice err" hidden></div></div>
+    </div>
+    <div class="modal-actions">
+      <span class="spacer"></span>
+      <button class="btn ghost" id="nl-cancel">Cancelar</button>
+      <button class="btn" id="nl-save">Registrar</button>
+    </div>
+  </div>`;
+  document.body.appendChild(bg);
+  const cerrar = () => bg.remove();
+  bg.addEventListener("click", e => { if (e.target === bg) cerrar(); });
+  $("#nl-cancel", bg).onclick = cerrar;
+  $("#nl-save", bg).onclick = async () => {
+    const msg = $("#nl-msg", bg);
+    try {
+      const r = await API.post("/lesiones", {
+        jugador_id: +$("#nl-jug", bg).value,
+        fecha_lesion: $("#nl-fecha", bg).value,
+        diagnostico: $("#nl-dx", bg).value.trim(),
+        zona: $("#nl-zona", bg).value.trim() || null,
+        lado: $("#nl-lado", bg).value || null,
+        mecanismo: $("#nl-mec", bg).value || null,
+        contacto: $("#nl-contacto", bg).checked,
+        dias_estimados: $("#nl-dias", bg).value ? +$("#nl-dias", bg).value : null,
+        criterios_proxima: $("#nl-crit", bg).value.trim() || null,
+      });
+      cerrar();
+      location.hash = "#/lesion/" + r.id;
+    } catch (e) {
+      msg.textContent = e.message;
+      msg.hidden = false;
+    }
+  };
+}
+
+async function screenLesionRTS(params) {
+  const id = +(params && params[0]);
+  if (!id) { location.hash = "#/lesiones"; return; }
+  crumbs("Lesiones", "Retorno al juego");
+  const l = await API.get("/lesion/" + id);
+  const puede = esLesiones();
+  const esMedico = ["medico", "cuerpo_tecnico"].includes(state.perfil.rol);
+  const idx = ESTADOS_RTS.indexOf(l.estado);
+  const siguiente = ESTADOS_RTS[idx + 1];
+  const anterior = ESTADOS_RTS[idx - 1];
+  const puedeAvanzar = puede && siguiente && (esMedico || !["disponible_competir", "alta"].includes(siguiente));
+
+  view().innerHTML = `
+    <div class="page-head">
+      <div class="glyph">◆</div>
+      <div>
+        <h1 style="text-transform:none">${esc(l.diagnostico)}</h1>
+        <p><a href="#/jugador/${l.jugador_id}">${esc(l.jugador_nombre)}</a> · ${esc(l.zona || "—")}${l.lado ? " · " + esc(l.lado) : ""}${l.mecanismo ? " · " + esc(l.mecanismo) : ""} · desde ${esc(l.fecha_lesion)}</p>
+      </div>
+      <span class="spacer" style="flex:1"></span>
+      <a class="btn ghost" href="#/lesiones" style="text-decoration:none;align-self:flex-start">‹ Lesiones</a>
+    </div>
+
+    <div class="card">
+      <h3>Continuo de retorno</h3>
+      ${stepperRTS(l.estado)}
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px;flex-wrap:wrap;gap:10px">
+        <div>
+          <span class="chip ${esc(l.semaforo)}">${esc(l.estado_label)}</span>
+          <span class="muted" style="font-size:.85rem;margin-left:8px">${ESTADO_RTS_LIDER[l.estado]}${l.activa ? " · dia " + (l.dia_actual ?? "—") + (l.dias_estimados ? " de ~" + l.dias_estimados : "") : ""}</span>
+        </div>
+        ${puede ? `<div style="display:flex;gap:8px">
+          ${anterior ? `<button class="btn ghost" id="rts-atras" style="padding:8px 14px">‹ ${esc(ESTADO_RTS_LABEL[anterior])}</button>` : ""}
+          ${siguiente ? `<button class="btn" id="rts-avanzar" style="padding:8px 14px" ${puedeAvanzar ? "" : "disabled title='Solo el medico habilita esta fase'"}>Avanzar a ${esc(ESTADO_RTS_LABEL[siguiente])} ›</button>` : ""}
+        </div>` : ""}
+      </div>
+      ${puede && siguiente && !puedeAvanzar ? `<p class="muted" style="font-size:.8rem;margin-top:8px">La habilitacion para competir y el alta las firma el medico deportologo.</p>` : ""}
+    </div>
+
+    <div class="grid cols-2 section-gap" style="align-items:start">
+      <div class="card">
+        <h3>Criterios de la proxima compuerta</h3>
+        <p id="rts-crit" style="font-size:.92rem">${l.criterios_proxima ? esc(l.criterios_proxima) : `<span class="muted">Sin criterios definidos.</span>`}</p>
+        ${puede ? `<button class="btn ghost" id="rts-edit-crit" style="padding:7px 12px;font-size:.82rem">Editar criterios</button>` : ""}
+      </div>
+      <div class="card">
+        <h3>Datos de la lesion</h3>
+        <div class="kv"><span class="muted">Gravedad</span><b>${esc(l.gravedad || "—")}</b></div>
+        <div class="kv"><span class="muted">Contacto</span><b>${l.contacto ? "Si" : "No"}</b></div>
+        <div class="kv"><span class="muted">Dias estimados</span><b>${esc(l.dias_estimados ?? "—")}</b></div>
+        <div class="kv"><span class="muted">Dias de baja</span><b>${esc(l.dias_baja ?? "—")}</b></div>
+      </div>
+    </div>
+
+    <div class="card section-gap">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <h3 style="margin:0">Historia del caso</h3>
+        ${puede ? `<button class="btn ghost" id="rts-nota" style="padding:7px 12px;font-size:.82rem">+ Agregar nota</button>` : ""}
+      </div>
+      <div id="rts-timeline" style="margin-top:12px">${renderTimelineRTS(l.timeline)}</div>
+    </div>`;
+
+  if (!puede) return;
+
+  const recargar = () => screenLesionRTS([String(id)]);
+
+  const btnAv = $("#rts-avanzar");
+  if (btnAv && puedeAvanzar) btnAv.onclick = async () => {
+    const nota = prompt(`Nota para el cambio a "${ESTADO_RTS_LABEL[siguiente]}" (opcional):`) || null;
+    await API.post(`/lesion/${id}/estado`, { estado: siguiente, nota });
+    recargar();
+  };
+  const btnAtras = $("#rts-atras");
+  if (btnAtras) btnAtras.onclick = async () => {
+    if (!confirm(`Volver a "${ESTADO_RTS_LABEL[anterior]}"?`)) return;
+    await API.post(`/lesion/${id}/estado`, { estado: anterior });
+    recargar();
+  };
+  $("#rts-edit-crit").onclick = async () => {
+    const v = prompt("Criterios para avanzar a la proxima fase:", l.criterios_proxima || "");
+    if (v === null) return;
+    await API.put(`/lesion/${id}`, { criterios_proxima: v });
+    recargar();
+  };
+  $("#rts-nota").onclick = async () => {
+    const v = prompt("Nota / observacion:");
+    if (!v) return;
+    await API.post(`/lesion/${id}/nota`, { texto: v });
+    recargar();
+  };
+}
+
+function renderTimelineRTS(timeline) {
+  if (!timeline || !timeline.length) return `<p class="muted">Sin registros.</p>`;
+  return `<div class="tl">${timeline.map(t => `<div class="tl-item ${t.tipo === "estado" ? "estado" : ""}">
+    <div class="tl-meta">
+      <span class="tl-fecha tnum">${esc((t.fecha || "").slice(0, 16).replace("T", " "))}</span>
+      <span class="tl-autor">${esc(t.autor_nombre || "—")}</span>
+      ${t.autor_rol ? `<span class="chip gris" style="font-size:.66rem">${esc(ROL_LABEL[t.autor_rol] || t.autor_rol)}</span>` : ""}
+    </div>
+    <div class="tl-texto">${t.tipo === "estado" ? `<b>${esc(t.texto || ESTADO_RTS_LABEL[t.estado] || "")}</b>` : esc(t.texto || "")}</div>
+  </div>`).join("")}</div>`;
 }
 
 /* ======================================================================
@@ -1122,15 +1394,16 @@ function fichaLesionActiva(l) {
    ====================================================================== */
 
 async function screenConfig() {
-  crumbs(esCT() ? "Configuracion" : "Mi perfil");
+  const titulo = state.perfil.rol === "cuerpo_tecnico" ? "Configuracion" : "Mi perfil";
+  crumbs(titulo);
   const p = state.perfil;
-  view().innerHTML = pageHead(esCT() ? "Configuracion" : "Mi perfil", esCT() ? "Cuenta y preferencias" : "Tus datos") + `
+  view().innerHTML = pageHead(titulo, "Tus datos") + `
     <div class="card" style="max-width:520px">
       <div style="display:flex;gap:16px;align-items:center;margin-bottom:16px">
         <span class="avatar" style="width:56px;height:56px;font-size:1.1rem">${esc(iniciales(p.nombre, p.apellido))}</span>
         <div>
           <div style="font-family:'Barlow Semi Condensed';font-weight:700;font-size:1.3rem">${esc(nombreJugador(p))}</div>
-          <div class="muted">${esc(p.email)} · ${esCT() ? "Cuerpo tecnico" : "Jugador"}</div>
+          <div class="muted">${esc(p.email)} · ${esc(ROL_LABEL[p.rol] || p.rol)}</div>
         </div>
       </div>
       ${!esCT() ? `
@@ -1201,7 +1474,7 @@ function calTitulo() {
 async function screenCalendario() {
   crumbs("Calendario");
   if (!calFecha) calFecha = new Date();
-  const editable = esCT();
+  const editable = esCalendarioEditor();
   const [ini, fin] = calRango();
   const eventos = await API.get(`/eventos?desde=${isoLocal(ini)}&hasta=${isoLocal(fin)}`);
 

@@ -12,13 +12,14 @@ from datetime import date, timedelta
 
 import database as db
 
-CT = {
-    "email": "ct@jockey.com",
-    "password": "handball2025",
-    "nombre": "Cuerpo",
-    "apellido": "Tecnico",
-    "rol": "cuerpo_tecnico",
-}
+PASS_CT = "handball2025"
+STAFF = [
+    ("ct@jockey.com", "Direccion", "Tecnica", "cuerpo_tecnico"),
+    ("entrenador@jockey.com", "Martin", "Lopez", "entrenador"),
+    ("pf@jockey.com", "Ignacio", "Perez", "preparador_fisico"),
+    ("medico@jockey.com", "Laura", "Fernandez", "medico"),
+    ("fisio@jockey.com", "Lucia", "Sosa", "fisioterapeuta"),
+]
 
 PLANTEL = [
     ("Tomas", "Fernandez", "1995-04-12", 3, "Central", "Lateral", 182, 84),
@@ -44,14 +45,22 @@ def ya_existe(email):
 def main():
     db.crear_tablas()
 
-    if not ya_existe(CT["email"]):
-        db.crear_usuario(
-            email=CT["email"], password=CT["password"],
-            nombre=CT["nombre"], apellido=CT["apellido"], rol=CT["rol"],
-        )
-        print(f"CT creado: {CT['email']} / {CT['password']}")
-    else:
-        print(f"CT ya existia: {CT['email']}")
+    def id_por_email(email):
+        conn = db.get_conexion()
+        fila = conn.execute("SELECT id FROM usuarios WHERE email = ?", (email,)).fetchone()
+        conn.close()
+        return fila["id"] if fila else None
+
+    medico = fisio = None
+    for email, nombre, apellido, rol in STAFF:
+        if not ya_existe(email):
+            db.crear_usuario(email=email, password=PASS_CT, nombre=nombre, apellido=apellido, rol=rol)
+        uid = id_por_email(email)
+        if rol == "medico":
+            medico = {"id": uid, "nombre": nombre, "apellido": apellido, "rol": rol}
+        if rol == "fisioterapeuta":
+            fisio = {"id": uid, "nombre": nombre, "apellido": apellido, "rol": rol}
+    print(f"Staff del cuerpo tecnico: {len(STAFF)} cuentas (pass: {PASS_CT})")
 
     ids = []
     for nombre, apellido, nac, num, pos1, pos2, altura, peso in PLANTEL:
@@ -93,21 +102,43 @@ def main():
                 total_ses += 1
     print(f"Sesiones creadas: {total_ses} (ultimos 35 dias)")
 
-    # Lesiones (Mateo Torres activa, Ignacio Herrera recuperada)
+    # Lesiones — con el continuo de retorno (RTS)
     if not db.lesiones_de_jugador(ids[3]):
-        db.insertar_lesion(
+        # Mateo Torres: en Fase 1, lidera el fisio
+        lid = db.insertar_lesion(
             ids[3], (date.today() - timedelta(days=12)).isoformat(),
             "Desgarro isquiotibial grado 2", "isquiotibiales", "izquierdo",
             "entrenamiento", False, "moderada", 21, "RM confirma lesion miofascial.",
+            criterios_proxima="Fuerza isquios >90% del lado sano · carrera al 80% sin dolor · test funcional completo.",
+            autor=medico,
         )
+        db.agregar_nota_lesion(lid, fisio, "Inicio de trabajo de fuerza excentrica. Dolor 2/10 al final de la sesion.")
+        db.cambiar_estado_lesion(lid, "disponible_entrenar", autor=fisio,
+                                 nota="Cumple criterios de carga de la Fase 1. Pasa a entrenar adaptado, sin cambios de direccion a maxima intensidad.")
+
     if not db.lesiones_de_jugador(ids[1]):
+        # Ignacio Herrera: caso cerrado (recorrio todo el continuo)
         lid = db.insertar_lesion(
             ids[1], (date.today() - timedelta(days=60)).isoformat(),
             "Esguince de tobillo grado 1", "tobillo", "derecho",
             "partido", True, "leve", 10, "",
+            autor=medico,
         )
-        db.registrar_alta(lid, (date.today() - timedelta(days=49)).isoformat())
-    print("Lesiones creadas: 2")
+        db.cambiar_estado_lesion(lid, "disponible_entrenar", autor=fisio)
+        db.cambiar_estado_lesion(lid, "disponible_competir", autor=medico,
+                                 nota="Habilitado para competir. Decision consensuada con PF y entrenador.")
+        db.cambiar_estado_lesion(lid, "alta", autor=medico,
+                                 nota="Cerrado. Sin recidiva, carga y rendimiento en linea de base.")
+        # backdatear las fechas para que los dias de baja sean realistas (~11 dias)
+        conn = db.get_conexion()
+        conn.execute(
+            "UPDATE lesiones SET fecha_disponible_competir = ?, fecha_alta = ? WHERE id = ?",
+            ((date.today() - timedelta(days=49)).isoformat(),
+             (date.today() - timedelta(days=30)).isoformat(), lid),
+        )
+        conn.commit()
+        conn.close()
+    print("Lesiones creadas: 2 (con timeline de retorno)")
 
     # Hidratacion para Facundo Gomez
     if not db.hidratacion_de_jugador(ids[2]):
@@ -151,7 +182,10 @@ def main():
                 })
         print("Calendario cargado (entrenamientos, partidos y descansos)")
 
-    print("\nListo. Entra con:", CT["email"], "/", CT["password"])
+    print("\nListo. Cuentas del staff (todas con pass", PASS_CT + "):")
+    for email, _, _, rol in STAFF:
+        print(f"  {email:<24} {rol}")
+    print("  jugador de prueba: facundo.gomez@jockey.com / jugador2025")
 
 
 if __name__ == "__main__":

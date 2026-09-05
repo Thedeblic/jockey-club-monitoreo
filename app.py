@@ -61,7 +61,7 @@ def login_requerido(vista):
 
 def solo_ct(vista):
     def check(u):
-        if u["rol"] != "cuerpo_tecnico":
+        if not db.es_ct(u["rol"]):
             return jsonify({"error": "Reservado para el cuerpo tecnico"}), 403
     return _con_usuario(vista, check)
 
@@ -73,9 +73,24 @@ def solo_jugador(vista):
     return _con_usuario(vista, check)
 
 
+def solo_lesiones(vista):
+    """Departamento medico: medico deportologo y fisioterapeuta."""
+    def check(u):
+        if u["rol"] not in db.ROLES_LESIONES:
+            return jsonify({"error": "Solo el departamento medico gestiona lesiones"}), 403
+    return _con_usuario(vista, check)
+
+
+def solo_calendario(vista):
+    def check(u):
+        if u["rol"] not in db.ROLES_CALENDARIO:
+            return jsonify({"error": "La planificacion la maneja el entrenador o el PF"}), 403
+    return _con_usuario(vista, check)
+
+
 def _puede_ver(jugador_id):
     """Un jugador solo se ve a si mismo; el CT ve a cualquiera."""
-    return g.usuario["rol"] == "cuerpo_tecnico" or g.usuario["id"] == jugador_id
+    return db.es_ct(g.usuario["rol"]) or g.usuario["id"] == jugador_id
 
 
 @app.errorhandler(413)
@@ -315,7 +330,7 @@ def ruta_hidratacion_de_jugador(jugador_id):
 
 
 # ---------------------------------------------------------------------------
-# Lesiones - las registra el cuerpo tecnico / area medica
+# Lesiones + continuo de retorno al juego (RTS) - departamento medico
 # ---------------------------------------------------------------------------
 
 
@@ -327,9 +342,13 @@ def ruta_listar_lesiones():
 
 
 @app.route("/api/lesiones", methods=["POST"])
-@solo_ct
+@solo_lesiones
 def ruta_crear_lesion():
     data = request.get_json() or {}
+    if not data.get("jugador_id") or not data.get("fecha_lesion") or not data.get("diagnostico"):
+        return jsonify({"error": "La lesion necesita jugador, fecha y diagnostico"}), 400
+    if db.obtener_jugador(data["jugador_id"]) is None:
+        return jsonify({"error": "Ese jugador no existe"}), 400
     nueva_id = db.insertar_lesion(
         data.get("jugador_id"),
         data.get("fecha_lesion"),
@@ -341,8 +360,56 @@ def ruta_crear_lesion():
         data.get("gravedad"),
         data.get("dias_estimados"),
         data.get("notas", ""),
+        criterios_proxima=data.get("criterios_proxima"),
+        autor=g.usuario,
     )
     return jsonify(db.obtener_lesion(nueva_id)), 201
+
+
+@app.route("/api/lesion/<int:lesion_id>", methods=["GET"])
+@solo_ct
+def ruta_obtener_lesion(lesion_id):
+    lesion = db.obtener_lesion(lesion_id)
+    if lesion is None:
+        return jsonify({"error": "Lesion no encontrada"}), 404
+    lesion["timeline"] = db.notas_de_lesion(lesion_id)
+    return jsonify(lesion)
+
+
+@app.route("/api/lesion/<int:lesion_id>", methods=["PUT"])
+@solo_lesiones
+def ruta_editar_lesion(lesion_id):
+    if db.obtener_lesion(lesion_id) is None:
+        return jsonify({"error": "Lesion no encontrada"}), 404
+    return jsonify(db.actualizar_lesion(lesion_id, request.get_json() or {}))
+
+
+@app.route("/api/lesion/<int:lesion_id>/estado", methods=["POST"])
+@solo_lesiones
+def ruta_cambiar_estado_lesion(lesion_id):
+    lesion = db.obtener_lesion(lesion_id)
+    if lesion is None:
+        return jsonify({"error": "Lesion no encontrada"}), 404
+    data = request.get_json() or {}
+    nuevo = data.get("estado")
+    if nuevo not in db.ESTADOS_LESION:
+        return jsonify({"error": f"Estado invalido. Opciones: {', '.join(db.ESTADOS_LESION)}"}), 400
+    # Regla del manual: habilitar competir o dar el alta lo hace el medico
+    if nuevo in db.ESTADO_REQUIERE_MEDICO and g.usuario["rol"] not in ("medico", "cuerpo_tecnico"):
+        return jsonify({"error": "Solo el medico deportologo habilita competir o da el alta"}), 403
+    return jsonify(db.cambiar_estado_lesion(lesion_id, nuevo, autor=g.usuario, nota=data.get("nota")))
+
+
+@app.route("/api/lesion/<int:lesion_id>/nota", methods=["POST"])
+@solo_lesiones
+def ruta_nota_lesion(lesion_id):
+    if db.obtener_lesion(lesion_id) is None:
+        return jsonify({"error": "Lesion no encontrada"}), 404
+    texto = (request.get_json() or {}).get("texto", "").strip()
+    if not texto:
+        return jsonify({"error": "La nota esta vacia"}), 400
+    db.agregar_nota_lesion(lesion_id, g.usuario, texto)
+    return jsonify({"ok": True, "timeline": db.notas_de_lesion(lesion_id)}), 201
 
 
 @app.route("/api/lesiones/<int:jugador_id>", methods=["GET"])
@@ -351,16 +418,6 @@ def ruta_lesiones_de_jugador(jugador_id):
     if not _puede_ver(jugador_id):
         return jsonify({"error": "No podes ver los datos de otro jugador"}), 403
     return jsonify(db.lesiones_de_jugador(jugador_id))
-
-
-@app.route("/api/lesiones/<int:lesion_id>/alta", methods=["POST"])
-@solo_ct
-def ruta_registrar_alta(lesion_id):
-    if db.obtener_lesion(lesion_id) is None:
-        return jsonify({"error": "Lesion no encontrada"}), 404
-    data = request.get_json() or {}
-    db.registrar_alta(lesion_id, data.get("fecha_alta"))
-    return jsonify(db.obtener_lesion(lesion_id))
 
 
 # ---------------------------------------------------------------------------
@@ -385,7 +442,7 @@ def ruta_valores_eventos():
 
 
 @app.route("/api/eventos", methods=["POST"])
-@solo_ct
+@solo_calendario
 def ruta_crear_evento():
     data = request.get_json() or {}
     if not data.get("fecha") or not data.get("titulo"):
@@ -397,7 +454,7 @@ def ruta_crear_evento():
 
 
 @app.route("/api/eventos/<int:evento_id>", methods=["PUT"])
-@solo_ct
+@solo_calendario
 def ruta_editar_evento(evento_id):
     if db.obtener_evento(evento_id) is None:
         return jsonify({"error": "Evento no encontrado"}), 404
@@ -408,7 +465,7 @@ def ruta_editar_evento(evento_id):
 
 
 @app.route("/api/eventos/<int:evento_id>", methods=["DELETE"])
-@solo_ct
+@solo_calendario
 def ruta_eliminar_evento(evento_id):
     if db.obtener_evento(evento_id) is None:
         return jsonify({"error": "Evento no encontrado"}), 404
