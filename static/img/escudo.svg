@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none">
+  <!-- Marca provisional del Jockey Club Cordoba (octogono + herradura).
+       Reemplazar por static/img/escudo.png con el escudo real. -->
+  <g stroke="#E0231B" stroke-width="3" stroke-linejoin="round">
+    <polygon points="31,4 69,4 96,31 96,69 69,96 31,96 4,69 4,31"/>
+    <polygon points="34,10 66,10 90,34 90,66 66,90 34,90 10,66 10,34" stroke-width="1.6"/>
+  </g>
+  <path d="M28 74 A26 26 0 1 1 72 74" stroke="#E0231B" stroke-width="8" stroke-linecap="round"/>
+  <g fill="#100F0E">
+    <circle cx="28" cy="42" r="2"/><circle cx="34" cy="28" r="2"/><circle cx="46" cy="22" r="2"/>
+    <circle cx="54" cy="22" r="2"/><circle cx="66" cy="28" r="2"/><circle cx="72" cy="42" r="2"/>
+  </g>
+</svg>

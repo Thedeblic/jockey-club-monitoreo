@@ -84,7 +84,7 @@ const COL = {
 if (window.Chart) {
   Chart.defaults.color = COL.ink;
   Chart.defaults.borderColor = COL.line;
-  Chart.defaults.font.family = "Barlow, system-ui, sans-serif";
+  Chart.defaults.font.family = "Archivo, system-ui, sans-serif";
   Chart.defaults.plugins.legend.display = false;
 }
 
@@ -381,7 +381,7 @@ async function screenInicioJugador() {
         <h3>Ultima hidratacion</h3>
         ${ultH ? `
           <div class="metric-row" style="display:flex;align-items:flex-end;gap:14px;margin-bottom:10px">
-            <span class="k-value tnum" style="font-family:'Barlow Semi Condensed';font-weight:700;font-size:2rem">${ultH.porcentaje_perdida}%</span>
+            <span class="k-value tnum" style="font-family:'Archivo Narrow';font-weight:700;font-size:2rem">${ultH.porcentaje_perdida}%</span>
             <span class="muted">${esc(ultH.fecha)} · deficit ${ultH.deficit_kg} kg
             <br><span class="chip ${esc(ultH.semaforo)}">${esc(ultH.clasificacion)}</span></span>
           </div>
@@ -468,7 +468,7 @@ async function screenCarga() {
           <div style="position:relative;width:150px;height:150px;flex:0 0 auto">
             <canvas id="ch-dist"></canvas>
             <div style="position:absolute;inset:0;display:grid;place-items:center;text-align:center">
-              <div><div style="font-family:'Barlow Semi Condensed';font-weight:700;font-size:1.6rem;line-height:1">${conDatos}</div>
+              <div><div style="font-family:'Archivo Narrow';font-weight:700;font-size:1.6rem;line-height:1">${conDatos}</div>
               <div class="muted" style="font-size:.72rem">jugadores</div></div>
             </div>
           </div>
@@ -779,7 +779,7 @@ function fichaTabResumen(panel, j, carga) {
     </div>
     ${hidra.length ? `<div class="card section-gap"><h3>Ultima hidratacion</h3>
       <div style="display:flex;align-items:flex-end;gap:14px">
-        <span class="tnum" style="font-family:'Barlow Semi Condensed';font-weight:700;font-size:2rem">${hidra[0].porcentaje_perdida}%</span>
+        <span class="tnum" style="font-family:'Archivo Narrow';font-weight:700;font-size:2rem">${hidra[0].porcentaje_perdida}%</span>
         <span class="muted">${esc(hidra[0].fecha)} · deficit ${hidra[0].deficit_kg} kg · <span class="chip ${esc(hidra[0].semaforo)}">${esc(hidra[0].clasificacion)}</span></span>
       </div></div>` : ""}`;
   graficoCargaDiaria("ch-fj-carga", carga.serie_diaria, { thin: true });
@@ -807,7 +807,7 @@ function fichaTabHidra(panel, j) {
     <div class="card">
       <h3>Hidratacion</h3>
       <div style="display:flex;align-items:flex-end;gap:14px;margin-bottom:12px">
-        <span class="tnum" style="font-family:'Barlow Semi Condensed';font-weight:700;font-size:2.2rem">${hidra[0].porcentaje_perdida}%</span>
+        <span class="tnum" style="font-family:'Archivo Narrow';font-weight:700;font-size:2.2rem">${hidra[0].porcentaje_perdida}%</span>
         <span class="muted">${esc(hidra[0].fecha)} · deficit ${hidra[0].deficit_kg} kg<br><span class="chip ${esc(hidra[0].semaforo)}">${esc(hidra[0].clasificacion)}</span></span>
       </div>
       ${hidra.length > 1 ? `<div style="height:170px;margin-bottom:12px"><canvas id="ch-fj-hidra"></canvas></div>` : ""}
@@ -930,7 +930,7 @@ async function fichaTabLesiones(panel, j, carga) {
         <h3>Resumen de lesiones</h3>
         <div style="display:flex;gap:22px;align-items:center">
           <div style="text-align:center">
-            <div class="tnum" style="font-family:'Barlow Semi Condensed';font-weight:700;font-size:3rem;line-height:1;color:var(--accent)">${total}</div>
+            <div class="tnum" style="font-family:'Archivo Narrow';font-weight:700;font-size:3rem;line-height:1;color:var(--accent)">${total}</div>
             <div class="muted" style="font-size:.78rem">lesiones registradas</div>
           </div>
           <div style="flex:1">
@@ -1769,7 +1769,7 @@ async function screenConfig() {
       <div style="display:flex;gap:16px;align-items:center;margin-bottom:18px">
         <span class="avatar" id="cfg-av" style="width:64px;height:64px;font-size:1.2rem;background-image:url('/api/jugadores/${p.id}/foto');background-size:cover">${p.foto ? "" : esc(iniciales(p.nombre, p.apellido))}</span>
         <div style="flex:1">
-          <div style="font-family:'Barlow Semi Condensed';font-weight:700;font-size:1.3rem">${esc(nombreJugador(p))}</div>
+          <div style="font-family:'Archivo Narrow';font-weight:700;font-size:1.3rem">${esc(nombreJugador(p))}</div>
           <div class="muted">${esc(p.email)} · ${esc(ROL_LABEL[p.rol] || p.rol)}</div>
         </div>
         ${esJugador ? `<button class="btn ghost" id="cfg-foto-btn" style="padding:7px 12px;font-size:.82rem">Cambiar foto</button>

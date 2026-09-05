@@ -1,31 +1,41 @@
 /* ==========================================================================
-   Jockey Club Handball · Sistema de monitoreo
-   Identidad visual (estricta): negro #050505 · rojo institucional #E63946
-   Semaforo: verde #2A9D8F / amarillo #E9C46A / naranja #F4A261 / rojo #E63946
+   Jockey Club Cordoba · Sistema de monitoreo
+   Identidad: escudo escarlata #E0231B sobre negro calido.
+   Semaforo: verde / amarillo / naranja / rojo.
    ========================================================================== */
 
 :root {
-  --ground: #050505;
-  --sidebar: #0A0A0B;
-  --surface: #161618;
-  --surface-2: #1F1F22;
-  --line: #2A2A2D;
-  --ink: #F3F3F4;
-  --ink-dim: #9A9AA1;
-  --ink-faint: #5C5C63;
-  --accent: #E63946;
+  /* fondos: negro calido, no absoluto */
+  --ground: #100F0E;
+  --sidebar: #0B0A09;
+  --surface: #1A1817;
+  --surface-2: #252220;
+  --line: #322E2B;
+  --line-soft: #26221F;
+
+  /* tinta: blanco calido */
+  --ink: #F5F1EC;
+  --ink-dim: #A49C94;
+  --ink-faint: #6C645D;
+
+  /* rojo del escudo */
+  --accent: #E0231B;
+  --accent-hover: #F13228;
   --accent-ink: #FFFFFF;
+  --accent-wash: color-mix(in srgb, var(--accent) 13%, transparent);
 
-  --verde: #2A9D8F;
-  --amarillo: #E9C46A;
-  --naranja: #F4A261;
-  --rojo: #E63946;
+  /* semaforo (recalibrado para convivir con el escarlata) */
+  --verde: #3AA793;
+  --amarillo: #E7B84C;
+  --naranja: #EC8A3E;
+  --rojo: #E0231B;
 
-  --radius: 12px;
-  --radius-sm: 8px;
+  --radius: 14px;
+  --radius-sm: 9px;
+  --shadow-card: 0 1px 2px rgba(0,0,0,.35), 0 8px 24px -14px rgba(0,0,0,.55);
   color-scheme: dark;
 
-  font-family: "Barlow", system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-family: "Archivo", system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 
 * { box-sizing: border-box; }
@@ -39,14 +49,16 @@ body {
   background: var(--ground);
   color: var(--ink);
   font-size: 15px;
-  line-height: 1.55;
+  line-height: 1.6;
+  letter-spacing: -0.003em;
   -webkit-font-smoothing: antialiased;
 }
 
 h1, h2, h3, h4 {
-  font-family: "Barlow Semi Condensed", "Barlow", sans-serif;
+  font-family: "Archivo Narrow", "Archivo", sans-serif;
   margin: 0;
-  line-height: 1.1;
+  line-height: 1.12;
+  letter-spacing: 0;
   text-wrap: balance;
 }
 
@@ -58,7 +70,7 @@ input, select, textarea, button { font: inherit; color: inherit; }
 
 /* ---------- utilidades de texto ---------- */
 .eyebrow {
-  font-family: "Barlow Semi Condensed", sans-serif;
+  font-family: "Archivo Narrow", sans-serif;
   text-transform: uppercase;
   letter-spacing: .16em;
   font-size: .72rem;
@@ -88,25 +100,33 @@ input, select, textarea, button { font: inherit; color: inherit; }
 .brand {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 4px 8px 22px;
+  gap: 11px;
+  padding: 4px 8px 24px;
 }
-.brand .shield {
-  width: 24px; height: 28px;
-  background: linear-gradient(160deg, var(--accent), #a81b28);
-  border: 1px solid rgba(255,255,255,.15);
-  border-radius: 5px 5px 9px 9px / 5px 5px 13px 13px;
-  flex: 0 0 auto;
+.brand .crest {
+  width: 34px; height: 34px; flex: 0 0 auto;
+  object-fit: contain;
+  /* el escudo es rojo sobre blanco: en tema oscuro se ve mejor sin el blanco */
+  mix-blend-mode: screen;
 }
 .brand .wm {
-  font-family: "Barlow Semi Condensed", sans-serif;
+  font-family: "Archivo Narrow", sans-serif;
   font-weight: 700;
-  font-size: .82rem;
+  font-size: .8rem;
   text-transform: uppercase;
-  letter-spacing: .13em;
-  line-height: 1.15;
+  letter-spacing: .14em;
+  line-height: 1.2;
 }
-.brand .wm span { display: block; color: var(--ink-dim); font-weight: 500; letter-spacing: .17em; }
+.brand .wm span { display: block; color: var(--ink-dim); font-weight: 500; letter-spacing: .18em; }
+
+.brand--login {
+  flex-direction: column;
+  gap: 14px;
+  padding: 4px 0 26px;
+  text-align: center;
+}
+.brand--login .crest { width: 78px; height: 78px; }
+.brand--login .wm { font-size: .92rem; letter-spacing: .16em; }
 
 .nav { display: flex; flex-direction: column; gap: 2px; flex: 1; }
 .nav a {
@@ -123,23 +143,23 @@ input, select, textarea, button { font: inherit; color: inherit; }
 }
 .nav a:hover { background: var(--surface); color: var(--ink); }
 .nav a.active {
-  background: var(--surface);
+  background: var(--accent-wash);
   color: var(--ink);
   border-left-color: var(--accent);
+  font-weight: 600;
 }
 .nav a .ic { width: 17px; height: 17px; flex: 0 0 auto; opacity: .85; }
 .nav a.active .ic { color: var(--accent); opacity: 1; }
 
-.nav .sep { height: 1px; background: var(--line); margin: 10px 8px; }
+.nav .sep { height: 1px; background: var(--line); margin: 12px 10px; }
 
 .sidebar .tagline {
-  font-family: "Barlow Semi Condensed", sans-serif;
+  font-family: "Archivo Narrow", sans-serif;
   text-transform: uppercase;
-  letter-spacing: .22em;
-  font-size: .62rem;
+  letter-spacing: .2em;
+  font-size: .6rem;
   color: var(--ink-faint);
-  line-height: 2;
-  padding: 14px 10px 2px;
+  padding: 16px 10px 2px;
   border-top: 1px solid var(--line);
 }
 
@@ -170,7 +190,7 @@ input, select, textarea, button { font: inherit; color: inherit; }
   width: 30px; height: 30px; border-radius: 50%;
   background: var(--surface-2); border: 1px solid var(--line);
   display: grid; place-items: center;
-  font-family: "Barlow Semi Condensed"; font-weight: 600; font-size: .78rem; color: var(--ink-dim);
+  font-family: "Archivo Narrow"; font-weight: 600; font-size: .78rem; color: var(--ink-dim);
 }
 .who button {
   background: none; border: 1px solid var(--line); color: var(--ink-dim);
@@ -181,20 +201,20 @@ input, select, textarea, button { font: inherit; color: inherit; }
 /* ---------- vista / contenido ---------- */
 .view { padding: 28px 30px 60px; flex: 1; }
 
-.page-head { display: flex; align-items: flex-start; gap: 16px; margin-bottom: 26px; }
+.page-head { display: flex; align-items: flex-start; gap: 16px; margin-bottom: 28px; }
 .page-head .glyph {
-  width: 44px; height: 44px; border-radius: 10px; flex: 0 0 auto;
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  width: 42px; height: 42px; border-radius: 11px; flex: 0 0 auto;
+  background: var(--accent-wash);
   color: var(--accent);
   display: grid; place-items: center;
 }
 .page-head h1 {
-  font-size: clamp(1.7rem, 3vw, 2.3rem);
+  font-size: clamp(1.7rem, 3vw, 2.35rem);
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: .01em;
+  letter-spacing: .015em;
 }
-.page-head p { margin: 2px 0 0; color: var(--ink-dim); font-size: .95rem; }
+.page-head p { margin: 4px 0 0; color: var(--ink-dim); font-size: .95rem; }
 
 /* ==========================================================================
    Componentes
@@ -212,22 +232,24 @@ input, select, textarea, button { font: inherit; color: inherit; }
 
 .card {
   background: var(--surface);
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-soft);
   border-radius: var(--radius);
-  padding: 18px;
+  padding: 20px;
+  box-shadow: var(--shadow-card);
 }
 .card h3 {
-  font-size: 1.05rem;
+  font-size: 1.12rem;
   font-weight: 600;
-  margin-bottom: 14px;
+  letter-spacing: .01em;
+  margin-bottom: 15px;
 }
 .card .card-sub { color: var(--ink-dim); font-size: .82rem; margin-top: -10px; margin-bottom: 14px; }
 
 /* KPI tile */
 .kpi { display: flex; flex-direction: column; gap: 4px; }
-.kpi .k-label { font-size: .78rem; color: var(--ink-dim); text-transform: uppercase; letter-spacing: .07em; }
+.kpi .k-label { font-size: .72rem; color: var(--ink-dim); text-transform: uppercase; letter-spacing: .09em; font-family: "Archivo Narrow", sans-serif; font-weight: 600; }
 .kpi .k-value {
-  font-family: "Barlow Semi Condensed";
+  font-family: "Archivo Narrow";
   font-weight: 700;
   font-size: 2.1rem;
   line-height: 1;
@@ -237,7 +259,7 @@ input, select, textarea, button { font: inherit; color: inherit; }
 /* chips de semaforo */
 .chip {
   display: inline-block;
-  font-family: "Barlow Semi Condensed";
+  font-family: "Archivo Narrow";
   font-weight: 600;
   font-size: .74rem;
   padding: 3px 9px;
@@ -256,7 +278,7 @@ input, select, textarea, button { font: inherit; color: inherit; }
 .table { width: 100%; border-collapse: collapse; font-size: .9rem; }
 .table th {
   text-align: left;
-  font-family: "Barlow Semi Condensed";
+  font-family: "Archivo Narrow";
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: .08em;
@@ -268,13 +290,13 @@ input, select, textarea, button { font: inherit; color: inherit; }
 .table td { padding: 12px; border-bottom: 1px solid var(--line); }
 .table tr:last-child td { border-bottom: 0; }
 .table tr.clickable:hover td { background: var(--surface-2); cursor: pointer; }
-.table .num-col { font-family: "Barlow Semi Condensed"; font-weight: 700; font-size: 1.1rem; width: 44px; text-align: center; }
+.table .num-col { font-family: "Archivo Narrow"; font-weight: 700; font-size: 1.1rem; width: 44px; text-align: center; }
 
 .avatar {
   width: 30px; height: 30px; border-radius: 50%;
   background: var(--surface-2); border: 1px solid var(--line);
   display: inline-grid; place-items: center; vertical-align: middle;
-  font-family: "Barlow Semi Condensed"; font-weight: 600; font-size: .72rem; color: var(--ink-dim);
+  font-family: "Archivo Narrow"; font-weight: 600; font-size: .72rem; color: var(--ink-dim);
 }
 .cell-player { display: flex; align-items: center; gap: 10px; }
 .cell-player .cp-name { font-weight: 600; }
@@ -286,11 +308,12 @@ input, select, textarea, button { font: inherit; color: inherit; }
 .field { display: flex; flex-direction: column; gap: 6px; }
 .field.full { grid-column: 1 / -1; }
 .field label {
-  font-size: .78rem;
+  font-size: .72rem;
   color: var(--ink-dim);
   text-transform: uppercase;
-  letter-spacing: .06em;
-  font-weight: 500;
+  letter-spacing: .08em;
+  font-weight: 600;
+  font-family: "Archivo Narrow", sans-serif;
 }
 .field input, .field select, .field textarea {
   background: var(--ground);
@@ -298,9 +321,11 @@ input, select, textarea, button { font: inherit; color: inherit; }
   border-radius: var(--radius-sm);
   padding: 10px 12px;
   outline: none;
+  transition: border-color .12s ease;
 }
 .field input:focus, .field select:focus, .field textarea:focus {
   border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-wash);
 }
 .field textarea { resize: vertical; min-height: 70px; }
 .field .hint { font-size: .76rem; color: var(--ink-faint); }
@@ -325,12 +350,13 @@ input, select, textarea, button { font: inherit; color: inherit; }
   padding: 11px 20px;
   font-weight: 600;
   cursor: pointer;
-  font-family: "Barlow Semi Condensed";
-  letter-spacing: .03em;
+  font-family: "Archivo Narrow";
+  letter-spacing: .04em;
   text-transform: uppercase;
-  font-size: .92rem;
+  font-size: .9rem;
+  transition: background .14s ease;
 }
-.btn:hover { background: #f04452; }
+.btn:hover { background: var(--accent-hover); }
 .btn:disabled { opacity: .5; cursor: default; }
 .btn.ghost {
   background: none;
@@ -347,7 +373,7 @@ input, select, textarea, button { font: inherit; color: inherit; }
   align-items: baseline;
   gap: 12px;
 }
-.calc-box .cb-value { font-family: "Barlow Semi Condensed"; font-weight: 700; font-size: 1.8rem; }
+.calc-box .cb-value { font-family: "Archivo Narrow"; font-weight: 700; font-size: 1.8rem; }
 .calc-box .cb-formula { color: var(--ink-dim); font-size: .82rem; }
 
 /* resultado hidratacion */
@@ -363,7 +389,7 @@ input, select, textarea, button { font: inherit; color: inherit; }
 .result.naranja { border-left-color: var(--naranja); }
 .result.rojo { border-left-color: var(--rojo); }
 .result .r-big {
-  font-family: "Barlow Semi Condensed";
+  font-family: "Archivo Narrow";
   font-weight: 700;
   font-size: 2.6rem;
   line-height: .95;
@@ -394,11 +420,11 @@ input, select, textarea, button { font: inherit; color: inherit; }
   width: 96px; height: 110px; border-radius: 12px; flex: 0 0 auto;
   background: var(--surface-2) center/cover no-repeat; border: 1px solid var(--line);
   display: grid; place-items: center;
-  font-family: "Barlow Semi Condensed"; font-weight: 700; font-size: 1.8rem; color: var(--ink-dim);
+  font-family: "Archivo Narrow"; font-weight: 700; font-size: 1.8rem; color: var(--ink-dim);
 }
 .ficha-id { flex: 1; min-width: 200px; }
 .ficha-id .fh-num {
-  font-family: "Barlow Semi Condensed"; font-weight: 700; font-size: 1.6rem;
+  font-family: "Archivo Narrow"; font-weight: 700; font-size: 1.6rem;
   color: var(--accent); line-height: 1;
 }
 .ficha-id h1 { font-size: clamp(1.5rem, 3.4vw, 2.1rem); text-transform: none; margin: 2px 0 4px; }
@@ -408,7 +434,7 @@ input, select, textarea, button { font: inherit; color: inherit; }
   background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
   padding: 14px 16px; display: flex; flex-direction: column; min-width: 110px;
 }
-.mini-stat .ms-v { font-family: "Barlow Semi Condensed"; font-weight: 700; font-size: 1.9rem; line-height: 1; }
+.mini-stat .ms-v { font-family: "Archivo Narrow"; font-weight: 700; font-size: 1.9rem; line-height: 1; }
 .mini-stat .ms-l { font-size: .78rem; color: var(--ink-dim); margin-top: 4px; }
 .mini-stat .ms-s { font-size: .72rem; color: var(--ink-faint); }
 
@@ -468,7 +494,7 @@ input, select, textarea, button { font: inherit; color: inherit; }
 .rts-dot {
   width: 26px; height: 26px; border-radius: 50%;
   display: grid; place-items: center;
-  font-family: "Barlow Semi Condensed"; font-weight: 700; font-size: .85rem;
+  font-family: "Archivo Narrow"; font-weight: 700; font-size: .85rem;
   border: 1.5px solid var(--line); color: var(--ink-faint); background: var(--surface);
 }
 .rts-step.done .rts-dot { border-color: var(--verde); color: var(--verde); }
@@ -487,7 +513,7 @@ input, select, textarea, button { font: inherit; color: inherit; }
 .arch-ic {
   width: 38px; height: 38px; border-radius: 8px; flex: 0 0 auto;
   background: var(--surface-2); display: grid; place-items: center;
-  font-family: "Barlow Semi Condensed"; font-weight: 700; font-size: .68rem;
+  font-family: "Archivo Narrow"; font-weight: 700; font-size: .68rem;
   letter-spacing: .04em; color: var(--ink-dim);
 }
 .arch-main { flex: 1; min-width: 0; }
@@ -519,7 +545,7 @@ input, select, textarea, button { font: inherit; color: inherit; }
   padding: 50px 20px;
   color: var(--ink-faint);
 }
-.empty .big { font-family: "Barlow Semi Condensed"; font-size: 1.3rem; color: var(--ink-dim); }
+.empty .big { font-family: "Archivo Narrow"; font-size: 1.3rem; color: var(--ink-dim); }
 
 /* ==========================================================================
    Login
@@ -534,15 +560,18 @@ input, select, textarea, button { font: inherit; color: inherit; }
 #login[hidden] { display: none; }
 #login .box {
   width: 100%;
-  max-width: 360px;
+  max-width: 372px;
   background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  padding: 32px;
+  border: 1px solid var(--line-soft);
+  border-radius: 18px;
+  padding: 38px 34px;
+  box-shadow: var(--shadow-card);
 }
-#login .brand { justify-content: center; padding-bottom: 26px; }
-#login h2 { font-size: 1.3rem; font-weight: 600; margin-bottom: 4px; text-align: center; }
-#login p.sub { text-align: center; color: var(--ink-dim); font-size: .88rem; margin: 0 0 22px; }
+#login h2 {
+  font-size: 1rem; font-weight: 600; margin-bottom: 4px; text-align: center;
+  text-transform: uppercase; letter-spacing: .14em; color: var(--ink-dim);
+}
+#login p.sub { text-align: center; color: var(--ink-faint); font-size: .85rem; margin: 0 0 24px; }
 #login .field { margin-bottom: 14px; }
 #login .btn { width: 100%; justify-content: center; margin-top: 6px; }
 #login .seed-hint {
@@ -574,7 +603,7 @@ input, select, textarea, button { font: inherit; color: inherit; }
   display: flex; align-items: center; gap: 12px; margin-bottom: 16px;
 }
 .cal-bar .cal-month {
-  font-family: "Barlow Semi Condensed", sans-serif;
+  font-family: "Archivo Narrow", sans-serif;
   font-weight: 700; font-size: 1.3rem; text-transform: capitalize;
   min-width: 190px;
 }
@@ -594,7 +623,7 @@ input, select, textarea, button { font: inherit; color: inherit; }
 .cal-dow {
   background: var(--sidebar); padding: 8px 10px; font-size: .72rem;
   text-transform: uppercase; letter-spacing: .08em; color: var(--ink-dim);
-  font-family: "Barlow Semi Condensed", sans-serif; font-weight: 600;
+  font-family: "Archivo Narrow", sans-serif; font-weight: 600;
 }
 .cal-cell {
   background: var(--surface); min-height: 104px; padding: 7px 8px;
@@ -605,7 +634,7 @@ input, select, textarea, button { font: inherit; color: inherit; }
 .cal-cell.editable { cursor: pointer; }
 .cal-cell.editable:hover { background: var(--surface-2); }
 .cal-num {
-  font-family: "Barlow Semi Condensed", sans-serif; font-weight: 600;
+  font-family: "Archivo Narrow", sans-serif; font-weight: 600;
   font-size: .9rem; color: var(--ink-dim); font-variant-numeric: tabular-nums;
 }
 .cal-cell.hoy .cal-num {
@@ -642,7 +671,7 @@ input, select, textarea, button { font: inherit; color: inherit; }
 .tg-dayhead {
   padding: 8px 6px; text-align: center;
   border-right: 1px solid var(--line); border-bottom: 1px solid var(--line);
-  font-family: "Barlow Semi Condensed", sans-serif;
+  font-family: "Archivo Narrow", sans-serif;
 }
 .tg-dayhead span { color: var(--ink-dim); text-transform: uppercase; letter-spacing: .06em; font-size: .7rem; }
 .tg-dayhead b { font-weight: 700; font-size: 1rem; margin-left: 5px; font-variant-numeric: tabular-nums; }
