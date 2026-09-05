@@ -21,9 +21,13 @@ const MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio",
   "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
 const DOW = ["Lun", "Mar", "Mie", "Jue", "Vie", "Sab", "Dom"];
 
+// iconos (SVG inline) para los botones de tipo de evento
+const ICON_CONO = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" style="vertical-align:-2px"><path d="M12 3 5 20h14L12 3Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M8.6 12h6.8M7.3 16h9.4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>`;
+const ICON_BALON = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" style="vertical-align:-2px"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.8"/><path d="M12 3c3 3 3 15 0 18M3 12c3-3 15-3 18 0M6 6c4 1 8 1 12 0M6 18c4-1 8-1 12 0" stroke="currentColor" stroke-width="1.4"/></svg>`;
+
 const NAV = {
   cuerpo_tecnico: [
-    ["inicio", "Inicio"], ["plantel", "Plantel"], ["carga", "Carga"],
+    ["inicio", "Inicio"], ["plantel", "Plantel"], ["carga", "Carga"], ["registro", "Registro"],
     ["sep"], ["calendario", "Calendario"], ["informes", "Informes"], ["config", "Configuracion"],
   ],
   jugador: [
@@ -33,7 +37,7 @@ const NAV = {
   ],
 };
 const ACCESO = {
-  cuerpo_tecnico: ["inicio", "plantel", "carga", "calendario", "informes", "config"],
+  cuerpo_tecnico: ["inicio", "plantel", "jugador", "carga", "registro", "calendario", "informes", "config"],
   jugador: ["inicio", "micarga", "registro", "hidratacion", "mislesiones", "calendario", "config"],
 };
 
@@ -201,9 +205,10 @@ async function onLogout() {
 const ROUTES = {
   inicio: screenInicio,
   plantel: screenPlantel,
+  jugador: screenFichaJugador,
   carga: screenCarga,
   micarga: screenMiCarga,
-  registro: screenRegistro,
+  registro: () => (esCT() ? screenRegistroEvento() : screenRegistro()),
   hidratacion: screenHidratacion,
   mislesiones: screenMisLesiones,
   config: screenConfig,
@@ -214,7 +219,8 @@ const ROUTES = {
 function router() {
   if (!state.perfil) return;  // todavia no cargo la sesion
   destroyCharts();
-  let route = (location.hash.replace("#/", "") || "inicio").split("/")[0];
+  const partes = (location.hash.replace("#/", "") || "inicio").split("/");
+  let route = partes[0];
   if (!ACCESO[state.perfil.rol].includes(route)) route = "inicio";
 
   document.querySelectorAll("#nav a").forEach(a => {
@@ -222,7 +228,7 @@ function router() {
   });
   const fn = ROUTES[route] || screenInicio;
   Promise.resolve()
-    .then(() => { spinner(); return fn(); })
+    .then(() => { spinner(); return fn(partes.slice(1)); })
     .catch(err => {
       view().innerHTML = `<div class="notice err">${esc(err.message)}</div>`;
     });
@@ -551,13 +557,32 @@ async function screenPlantel() {
   const [js, lesiones] = await Promise.all([jugadores(), API.get("/lesiones?activas=1")]);
   const lesionadosIds = new Set(lesiones.map(l => l.jugador_id));
 
-  view().innerHTML = pageHead("Plantel", "Vista general de los jugadores") + `
-    <div class="card">
+  // conteo por posicion (orden fijo de la cancha)
+  const conteo = Object.fromEntries(POSICIONES.map(p => [p, 0]));
+  js.forEach(j => { if (j.posicion_principal in conteo) conteo[j.posicion_principal]++; });
+  const posConDatos = POSICIONES.filter(p => conteo[p] > 0);
+
+  view().innerHTML = pageHead("Plantel", "Resumen general y ficha de cada jugador") + `
+    <div class="grid cols-2" style="align-items:start">
+      <div class="grid cols-2" style="align-content:start">
+        ${kpi("Jugadores", js.length)}
+        ${kpi("Disponibles", js.length - lesionadosIds.size)}
+        ${kpi("Lesionados", lesionadosIds.size, lesionadosIds.size ? "accent" : "")}
+        ${kpi("Posiciones cubiertas", posConDatos.length + " / " + POSICIONES.length)}
+      </div>
+      <div class="card">
+        <h3>Jugadores por posicion</h3>
+        <div style="height:200px"><canvas id="ch-plantel-pos"></canvas></div>
+      </div>
+    </div>
+
+    <div class="card section-gap">
+      <h3>Jugadores</h3>
       ${js.length ? `<div class="table-wrap"><table class="table">
         <thead><tr><th>#</th><th>Jugador</th><th>Posicion sec.</th><th>Edad</th><th style="text-align:right">Estado</th></tr></thead>
         <tbody>${js.map(j => {
           const lesionado = lesionadosIds.has(j.id);
-          return `<tr>
+          return `<tr class="clickable" data-id="${j.id}">
             <td class="num-col">${esc(j.numero_camiseta ?? "–")}</td>
             <td><div class="cell-player">
               <span class="avatar">${esc(iniciales(j.nombre, j.apellido))}</span>
@@ -572,6 +597,242 @@ async function screenPlantel() {
       </table></div>` : `<div class="empty"><div class="big">Todavia no hay jugadores</div>
         <p>Corre <code>python seed.py</code> para cargar un plantel de ejemplo.</p></div>`}
     </div>`;
+
+  chart("ch-plantel-pos", {
+    type: "bar",
+    data: {
+      labels: POSICIONES,
+      datasets: [{ data: POSICIONES.map(p => conteo[p]), backgroundColor: COL.accent, borderRadius: 3, maxBarThickness: 34 }],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      scales: { x: ejeSinGrilla, y: { ...ejeGrillaTenue, beginAtZero: true, ticks: { precision: 0 } } },
+      plugins: { tooltip: { callbacks: { label: c => c.parsed.y + " jugador" + (c.parsed.y === 1 ? "" : "es") } } },
+    },
+  });
+
+  view().querySelectorAll("tr.clickable").forEach(tr =>
+    tr.addEventListener("click", () => { location.hash = "#/jugador/" + tr.dataset.id; }));
+}
+
+/* ======================================================================
+   FICHA DEL JUGADOR (CT)
+   ====================================================================== */
+
+async function screenFichaJugador(params) {
+  const id = +(params && params[0]);
+  if (!id) { location.hash = "#/plantel"; return; }
+  crumbs("Plantel", "Ficha");
+
+  const [j, carga] = await Promise.all([
+    API.get("/jugadores/" + id),
+    API.get("/carga/jugador/" + id),
+  ]);
+  const acwr = carga.acwr_ewma ?? carga.acwr_ra;
+  const lesiones = j.lesiones || [];
+  const activas = lesiones.filter(l => l.estado === "activa");
+  const historial = lesiones.filter(l => l.estado === "recuperada");
+  const hidra = j.hidratacion || [];
+
+  view().innerHTML = `
+    <div class="page-head">
+      <span class="avatar" style="width:64px;height:64px;font-size:1.3rem;background-image:url('/api/jugadores/${id}/foto');background-size:cover">${j.foto ? "" : esc(iniciales(j.nombre, j.apellido))}</span>
+      <div>
+        <h1 style="text-transform:none">${esc(nombreJugador(j))}</h1>
+        <p>#${esc(j.numero_camiseta ?? "–")} · ${esc(j.posicion_principal || "—")}${j.posicion_secundaria ? " / " + esc(j.posicion_secundaria) : ""} · ${esc(j.edad ?? "—")} anios${j.altura_cm ? " · " + esc(j.altura_cm) + " cm" : ""}${j.peso_kg ? " · " + esc(j.peso_kg) + " kg" : ""}</p>
+      </div>
+      <span class="spacer" style="flex:1"></span>
+      <a class="btn ghost" href="#/plantel" style="text-decoration:none;align-self:flex-start">‹ Plantel</a>
+    </div>
+
+    <div class="grid cols-4">
+      ${kpi("Carga 7 dias", carga.carga_7d.toLocaleString("es") + " UA")}
+      ${kpi("Carga 28 dias", carga.carga_28d.toLocaleString("es") + " UA")}
+      <div class="card kpi">
+        <span class="k-label">ACWR (EWMA / RA)</span>
+        <span class="k-value tnum">${acwr ?? "–"} <span class="muted" style="font-size:1rem">/ ${carga.acwr_ra ?? "–"}</span></span>
+        <span class="chip ${esc(carga.semaforo)}" style="align-self:flex-start;margin-top:6px">${esc(zonaLabel(carga.zona))}</span>
+      </div>
+      ${kpi("Lesiones activas", activas.length, activas.length ? "accent" : "")}
+    </div>
+
+    <div class="card section-gap">
+      <h3>Carga diaria · ultimos 28 dias</h3>
+      <div style="height:230px"><canvas id="ch-fj-carga"></canvas></div>
+    </div>
+
+    <div class="grid cols-2 section-gap" style="align-items:start">
+      <div class="card">
+        <h3>Hidratacion</h3>
+        ${hidra.length ? `
+          <div style="display:flex;align-items:flex-end;gap:14px;margin-bottom:10px">
+            <span class="tnum" style="font-family:'Barlow Semi Condensed';font-weight:700;font-size:2rem">${hidra[0].porcentaje_perdida}%</span>
+            <span class="muted">${esc(hidra[0].fecha)} · deficit ${hidra[0].deficit_kg} kg<br><span class="chip ${esc(hidra[0].semaforo)}">${esc(hidra[0].clasificacion)}</span></span>
+          </div>
+          ${hidra.length > 1 ? `<div style="height:130px;margin-bottom:8px"><canvas id="ch-fj-hidra"></canvas></div>` : ""}
+          <div class="table-wrap"><table class="table"><tbody>${hidra.slice(0, 5).map(h => `<tr>
+            <td class="tnum muted">${esc(h.fecha)}</td><td class="muted">${esc(h.contexto)}</td>
+            <td class="tnum">${h.deficit_kg} kg</td>
+            <td style="text-align:right"><span class="chip ${esc(h.semaforo)}">${h.porcentaje_perdida}%</span></td>
+          </tr>`).join("")}</tbody></table></div>
+        ` : `<p class="muted">Sin registros de hidratacion.</p>`}
+      </div>
+      <div class="card">
+        <h3>Antecedentes de lesiones</h3>
+        ${activas.map(l => `<div class="notice err" style="margin-bottom:10px">
+          <b>${esc(l.diagnostico)}</b> · activa<br>
+          <span style="font-size:.85rem">${esc(l.zona || "")}${l.lado ? " · " + esc(l.lado) : ""} · desde ${esc(l.fecha_lesion)}</span>
+        </div>`).join("")}
+        ${historial.length ? `<div class="table-wrap"><table class="table">
+          <thead><tr><th>Diagnostico</th><th>Zona</th><th>Fecha</th><th style="text-align:right">Baja</th></tr></thead>
+          <tbody>${historial.map(l => `<tr>
+            <td>${esc(l.diagnostico)}</td>
+            <td class="muted">${esc(l.zona || "—")}${l.lado ? " · " + esc(l.lado) : ""}</td>
+            <td class="tnum muted">${esc(l.fecha_lesion)}</td>
+            <td style="text-align:right"><b class="tnum">${l.dias_baja ?? "—"} d</b></td>
+          </tr>`).join("")}</tbody>
+        </table></div>` : (activas.length ? "" : `<p class="muted">Sin lesiones registradas.</p>`)}
+      </div>
+    </div>`;
+
+  graficoCargaDiaria("ch-fj-carga", carga.serie_diaria, { thin: true });
+
+  if (hidra.length > 1) {
+    const orden = hidra.slice().reverse();
+    chart("ch-fj-hidra", {
+      type: "line",
+      data: {
+        labels: orden.map(h => ddmm(h.fecha)),
+        datasets: [{
+          data: orden.map(h => h.porcentaje_perdida),
+          borderColor: COL.accent, backgroundColor: "transparent",
+          pointBackgroundColor: orden.map(h => COL[h.semaforo] || COL.ink), pointRadius: 3, tension: 0.3,
+        }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        scales: { x: ejeSinGrilla, y: { ...ejeGrillaTenue, beginAtZero: true, ticks: { callback: v => v + "%" } } },
+        plugins: { tooltip: { callbacks: { label: c => c.parsed.y + "% perdido" } } },
+      },
+    });
+  }
+}
+
+/* ======================================================================
+   REGISTRO DE EVENTO (CT) - agenda entrenamientos y partidos
+   ====================================================================== */
+
+async function screenRegistroEvento() {
+  crumbs("Registro");
+  let tipo = "entrenamiento";
+  const valores = await API.get("/eventos/valores").catch(() => ({ lugares: [], rivales: [] }));
+
+  view().innerHTML = pageHead("Registro", "Agenda entrenamientos y partidos · se ven en el calendario") + `
+    <div class="grid cols-2" style="align-items:start">
+      <div class="card">
+        <form id="form-evento" class="form-grid">
+          <div class="field full"><label>Que se registra</label>
+            <div class="seg" id="seg-evtipo">
+              <button type="button" data-t="entrenamiento" class="on">${ICON_CONO} Entrenamiento</button>
+              <button type="button" data-t="partido">${ICON_BALON} Partido</button>
+            </div>
+          </div>
+          <div class="field"><label>Fecha</label><input id="e-fecha" type="date" value="${hoyISO()}" required></div>
+          <div class="field"><label>Hora inicio</label><input id="e-hi" type="time" value="19:00"></div>
+          <div class="field"><label>Hora fin</label><input id="e-hf" type="time"></div>
+
+          <div class="field" id="wrap-condicion" hidden><label>Condicion</label>
+            <div class="seg" id="seg-cond">
+              <button type="button" data-c="local" class="on">Local</button>
+              <button type="button" data-c="visitante">Visitante</button>
+            </div>
+          </div>
+          <div class="field" id="wrap-rival" hidden><label>Rival</label>
+            <input id="e-rival" list="dl-rivales" placeholder="Nombre del club">
+            <datalist id="dl-rivales">${valores.rivales.map(r => `<option value="${esc(r)}">`).join("")}</datalist>
+          </div>
+          <div class="field full" id="wrap-lugar" hidden><label>Lugar / ciudad</label>
+            <input id="e-lugar" list="dl-lugares" placeholder="Estadio, ciudad…">
+            <datalist id="dl-lugares">${valores.lugares.map(l => `<option value="${esc(l)}">`).join("")}</datalist>
+            <span class="hint">Los lugares y rivales que cargues quedan guardados para la proxima.</span>
+          </div>
+
+          <div class="field full"><label>Notas (opcional)</label><textarea id="e-notas" placeholder="Detalles del entrenamiento o del partido…"></textarea></div>
+          <div class="field full"><button class="btn" type="submit">Agendar</button></div>
+          <div class="field full"><div id="evento-msg" class="notice ok" hidden></div></div>
+        </form>
+      </div>
+      <div class="card">
+        <h3>Proximos eventos</h3>
+        <div id="proximos"><p class="muted">Cargando…</p></div>
+      </div>
+    </div>`;
+
+  let condicion = "local";
+
+  function refrescarCampos() {
+    const esPartido = tipo === "partido";
+    ["wrap-condicion", "wrap-rival", "wrap-lugar"].forEach(w => { $("#" + w).hidden = !esPartido; });
+    $("#seg-evtipo").querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.t === tipo));
+  }
+  $("#seg-evtipo").addEventListener("click", e => {
+    const b = e.target.closest("button"); if (!b) return;
+    tipo = b.dataset.t;
+    refrescarCampos();
+  });
+  $("#seg-cond").addEventListener("click", e => {
+    const b = e.target.closest("button"); if (!b) return;
+    condicion = b.dataset.c;
+    $("#seg-cond").querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b));
+  });
+  refrescarCampos();
+  cargarProximos();
+
+  $("#form-evento").addEventListener("submit", async ev => {
+    ev.preventDefault();
+    const msg = $("#evento-msg");
+    const esPartido = tipo === "partido";
+    const rival = $("#e-rival").value.trim();
+    const payload = {
+      fecha: $("#e-fecha").value,
+      tipo,
+      titulo: esPartido ? (rival ? "vs " + rival : "Partido") : "Entrenamiento",
+      hora_inicio: $("#e-hi").value || null,
+      hora_fin: $("#e-hf").value || null,
+      condicion: esPartido ? condicion : null,
+      lugar: esPartido ? ($("#e-lugar").value.trim() || null) : null,
+      rival: esPartido ? (rival || null) : null,
+      notas: $("#e-notas").value.trim() || null,
+    };
+    try {
+      await API.post("/eventos", payload);
+      msg.className = "notice ok";
+      msg.textContent = "Evento agendado. Ya aparece en el calendario.";
+      msg.hidden = false;
+      $("#e-notas").value = "";
+      $("#e-rival").value = "";
+      $("#e-lugar").value = "";
+      cargarProximos();
+    } catch (e) {
+      msg.className = "notice err";
+      msg.textContent = e.message;
+      msg.hidden = false;
+    }
+  });
+}
+
+async function cargarProximos() {
+  const box = $("#proximos");
+  const hoy = hoyISO();
+  const hasta = isoLocal(new Date(Date.now() + 45 * 86400000));
+  const evs = await API.get(`/eventos?desde=${hoy}&hasta=${hasta}`);
+  if (!evs.length) { box.innerHTML = `<p class="muted">No hay eventos agendados.</p>`; return; }
+  box.innerHTML = `<div class="table-wrap"><table class="table"><tbody>${evs.slice(0, 12).map(e => `<tr>
+    <td class="tnum muted" style="white-space:nowrap">${esc(ddmm(e.fecha))}${e.hora_inicio ? " · " + esc(e.hora_inicio) : ""}</td>
+    <td><span class="chip ${esc(e.tipo)}" style="background:none;padding:0;color:var(--ink)">${esc(e.titulo)}</span>
+      ${e.condicion ? `<span class="muted"> · ${esc(e.condicion)}</span>` : ""}
+      ${e.lugar ? `<span class="muted"> · ${esc(e.lugar)}</span>` : ""}</td>
+  </tr>`).join("")}</tbody></table></div>`;
 }
 
 /* ======================================================================
@@ -988,8 +1249,13 @@ function abrirEventoModal(ev, editable) {
       </select></div>
       <div class="field"><label>Hora inicio</label><input id="ev-hi" type="time" value="${esc(ev.hora_inicio || "")}" ${dis}></div>
       <div class="field"><label>Hora fin</label><input id="ev-hf" type="time" value="${esc(ev.hora_fin || "")}" ${dis}></div>
-      <div class="field full"><label>Lugar</label><input id="ev-lugar" value="${esc(ev.lugar || "")}" ${dis}></div>
-      <div class="field full"><label>Rival (si es partido)</label><input id="ev-rival" value="${esc(ev.rival || "")}" ${dis}></div>
+      <div class="field"><label>Condicion</label><select id="ev-cond" ${dis}>
+        <option value="">—</option>
+        <option value="local" ${ev.condicion === "local" ? "selected" : ""}>Local</option>
+        <option value="visitante" ${ev.condicion === "visitante" ? "selected" : ""}>Visitante</option>
+      </select></div>
+      <div class="field"><label>Rival</label><input id="ev-rival" value="${esc(ev.rival || "")}" ${dis}></div>
+      <div class="field full"><label>Lugar / ciudad</label><input id="ev-lugar" value="${esc(ev.lugar || "")}" ${dis}></div>
       <div class="field full"><label>Notas</label><textarea id="ev-notas" ${dis}>${esc(ev.notas || "")}</textarea></div>
       <div class="field full"><div id="ev-msg" class="notice err" hidden></div></div>
     </div>
@@ -1015,6 +1281,7 @@ function abrirEventoModal(ev, editable) {
       tipo: $("#ev-tipo", bg).value,
       hora_inicio: $("#ev-hi", bg).value || null,
       hora_fin: $("#ev-hf", bg).value || null,
+      condicion: $("#ev-cond", bg).value || null,
       lugar: $("#ev-lugar", bg).value.trim() || null,
       rival: $("#ev-rival", bg).value.trim() || null,
       notas: $("#ev-notas", bg).value.trim() || null,

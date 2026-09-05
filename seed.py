@@ -135,10 +135,14 @@ def main():
                     "lugar": "Club",
                 })
             elif wd == 5:
+                local = (dia.isocalendar()[1] % 2 == 0)
                 db.insertar_evento({
                     "fecha": dia.isoformat(), "tipo": "partido",
-                    "titulo": "Partido de liga", "hora_inicio": "20:00",
-                    "lugar": "Club", "rival": "Universitario",
+                    "titulo": "vs " + ("Universitario" if local else "CIC"),
+                    "hora_inicio": "20:00",
+                    "condicion": "local" if local else "visitante",
+                    "lugar": "Estadio Jockey Club, Cordoba" if local else "Polideportivo CIC, Rosario",
+                    "rival": "Universitario" if local else "CIC",
                 })
             else:
                 db.insertar_evento({

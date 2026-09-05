@@ -378,6 +378,12 @@ def ruta_listar_eventos():
     return jsonify(db.listar_eventos(desde, hasta))
 
 
+@app.route("/api/eventos/valores", methods=["GET"])
+@login_requerido
+def ruta_valores_eventos():
+    return jsonify(db.valores_eventos())
+
+
 @app.route("/api/eventos", methods=["POST"])
 @solo_ct
 def ruta_crear_evento():

@@ -126,6 +126,7 @@ def crear_tablas():
             titulo TEXT NOT NULL,
             hora_inicio TEXT,
             hora_fin TEXT,
+            condicion TEXT,
             lugar TEXT,
             rival TEXT,
             notas TEXT,
@@ -134,6 +135,7 @@ def crear_tablas():
             FOREIGN KEY (creado_por) REFERENCES usuarios (id)
         )
     """)
+    _agregar_columna(cursor, "eventos", "condicion", "TEXT")
 
     conn.commit()
     conn.close()
@@ -759,7 +761,10 @@ def registrar_alta(lesion_id, fecha_alta):
 # Calendario / planificacion (eventos)
 # ---------------------------------------------------------------------------
 
-CAMPOS_EVENTO = ["fecha", "tipo", "titulo", "hora_inicio", "hora_fin", "lugar", "rival", "notas"]
+CAMPOS_EVENTO = [
+    "fecha", "tipo", "titulo", "hora_inicio", "hora_fin",
+    "condicion", "lugar", "rival", "notas",
+]
 
 
 def insertar_evento(datos, creado_por=None):
@@ -769,14 +774,27 @@ def insertar_evento(datos, creado_por=None):
     cursor = conn.cursor()
     cursor.execute(
         """INSERT INTO eventos
-           (fecha, tipo, titulo, hora_inicio, hora_fin, lugar, rival, notas, creado_por)
-           VALUES (:fecha, :tipo, :titulo, :hora_inicio, :hora_fin, :lugar, :rival, :notas, :creado_por)""",
+           (fecha, tipo, titulo, hora_inicio, hora_fin, condicion, lugar, rival, notas, creado_por)
+           VALUES (:fecha, :tipo, :titulo, :hora_inicio, :hora_fin, :condicion, :lugar, :rival, :notas, :creado_por)""",
         {**valores, "creado_por": creado_por},
     )
     conn.commit()
     nuevo_id = cursor.lastrowid
     conn.close()
     return nuevo_id
+
+
+def valores_eventos():
+    """Valores ya usados en eventos, para autocompletar (datalists)."""
+    conn = get_conexion()
+    lugares = [r[0] for r in conn.execute(
+        "SELECT DISTINCT lugar FROM eventos WHERE lugar IS NOT NULL AND lugar != '' ORDER BY lugar"
+    ).fetchall()]
+    rivales = [r[0] for r in conn.execute(
+        "SELECT DISTINCT rival FROM eventos WHERE rival IS NOT NULL AND rival != '' ORDER BY rival"
+    ).fetchall()]
+    conn.close()
+    return {"lugares": lugares, "rivales": rivales}
 
 
 def listar_eventos(desde, hasta):
