@@ -12,6 +12,9 @@ POSICIONES = ["Arquero", "Lateral", "Central", "Extremo", "Pivote"]
 # Roles dentro de la app
 ROLES = ["jugador", "cuerpo_tecnico"]
 
+# Tipos de evento del calendario
+TIPOS_EVENTO = ["entrenamiento", "partido", "gimnasio", "recuperacion", "otro"]
+
 # Campos del perfil que el propio usuario puede editar despues del registro
 CAMPOS_EDITABLES = [
     "nombre",
@@ -112,6 +115,23 @@ def crear_tablas():
             fecha_alta TEXT,
             notas TEXT,
             FOREIGN KEY (jugador_id) REFERENCES usuarios (id)
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS eventos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            fecha TEXT NOT NULL,
+            tipo TEXT NOT NULL DEFAULT 'entrenamiento',
+            titulo TEXT NOT NULL,
+            hora_inicio TEXT,
+            hora_fin TEXT,
+            lugar TEXT,
+            rival TEXT,
+            notas TEXT,
+            creado_por INTEGER,
+            creado_en TEXT DEFAULT (datetime('now')),
+            FOREIGN KEY (creado_por) REFERENCES usuarios (id)
         )
     """)
 
@@ -731,5 +751,69 @@ def registrar_alta(lesion_id, fecha_alta):
     cursor.execute(
         "UPDATE lesiones SET fecha_alta = ? WHERE id = ?", (fecha_alta, lesion_id)
     )
+    conn.commit()
+    conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Calendario / planificacion (eventos)
+# ---------------------------------------------------------------------------
+
+CAMPOS_EVENTO = ["fecha", "tipo", "titulo", "hora_inicio", "hora_fin", "lugar", "rival", "notas"]
+
+
+def insertar_evento(datos, creado_por=None):
+    valores = {c: datos.get(c) for c in CAMPOS_EVENTO}
+    valores["tipo"] = valores["tipo"] or "entrenamiento"
+    conn = get_conexion()
+    cursor = conn.cursor()
+    cursor.execute(
+        """INSERT INTO eventos
+           (fecha, tipo, titulo, hora_inicio, hora_fin, lugar, rival, notas, creado_por)
+           VALUES (:fecha, :tipo, :titulo, :hora_inicio, :hora_fin, :lugar, :rival, :notas, :creado_por)""",
+        {**valores, "creado_por": creado_por},
+    )
+    conn.commit()
+    nuevo_id = cursor.lastrowid
+    conn.close()
+    return nuevo_id
+
+
+def listar_eventos(desde, hasta):
+    conn = get_conexion()
+    filas = conn.execute(
+        "SELECT * FROM eventos WHERE fecha >= ? AND fecha <= ? "
+        "ORDER BY fecha, COALESCE(hora_inicio, '99:99')",
+        (desde, hasta),
+    ).fetchall()
+    conn.close()
+    return [dict(f) for f in filas]
+
+
+def obtener_evento(evento_id):
+    conn = get_conexion()
+    fila = conn.execute("SELECT * FROM eventos WHERE id = ?", (evento_id,)).fetchone()
+    conn.close()
+    return dict(fila) if fila else None
+
+
+def actualizar_evento(evento_id, datos):
+    cambios = {c: datos[c] for c in CAMPOS_EVENTO if c in datos}
+    if not cambios:
+        return obtener_evento(evento_id)
+    asignaciones = ", ".join(f"{c} = ?" for c in cambios)
+    conn = get_conexion()
+    conn.execute(
+        f"UPDATE eventos SET {asignaciones} WHERE id = ?",
+        list(cambios.values()) + [evento_id],
+    )
+    conn.commit()
+    conn.close()
+    return obtener_evento(evento_id)
+
+
+def eliminar_evento(evento_id):
+    conn = get_conexion()
+    conn.execute("DELETE FROM eventos WHERE id = ?", (evento_id,))
     conn.commit()
     conn.close()

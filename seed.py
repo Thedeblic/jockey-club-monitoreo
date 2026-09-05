@@ -123,6 +123,30 @@ def main():
             )
     print("Hidratacion creada para Facundo Gomez")
 
+    # Calendario: entrenamientos de lun a vie + un partido el sabado, -7 a +21 dias
+    if not db.listar_eventos("2000-01-01", "2100-01-01"):
+        for delta in range(-7, 22):
+            dia = date.today() + timedelta(days=delta)
+            wd = dia.weekday()  # 0 = lunes
+            if wd < 5:
+                db.insertar_evento({
+                    "fecha": dia.isoformat(), "tipo": "entrenamiento",
+                    "titulo": "Entrenamiento", "hora_inicio": "19:00", "hora_fin": "21:00",
+                    "lugar": "Club",
+                })
+            elif wd == 5:
+                db.insertar_evento({
+                    "fecha": dia.isoformat(), "tipo": "partido",
+                    "titulo": "Partido de liga", "hora_inicio": "20:00",
+                    "lugar": "Club", "rival": "Universitario",
+                })
+            else:
+                db.insertar_evento({
+                    "fecha": dia.isoformat(), "tipo": "recuperacion",
+                    "titulo": "Descanso / recuperacion",
+                })
+        print("Calendario cargado (entrenamientos, partidos y descansos)")
+
     print("\nListo. Entra con:", CT["email"], "/", CT["password"])
 
 

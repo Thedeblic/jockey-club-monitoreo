@@ -16,6 +16,10 @@ const SUENO_OPCIONES = [
   "7-8 h / Reparador",
   "Mas de 8 h / Muy reparador",
 ];
+const TIPOS_EVENTO = ["entrenamiento", "partido", "gimnasio", "recuperacion", "otro"];
+const MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio",
+  "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
+const DOW = ["Lun", "Mar", "Mie", "Jue", "Vie", "Sab", "Dom"];
 
 const NAV = {
   cuerpo_tecnico: [
@@ -203,7 +207,7 @@ const ROUTES = {
   hidratacion: screenHidratacion,
   mislesiones: screenMisLesiones,
   config: screenConfig,
-  calendario: () => screenSoon("Calendario", "Planificacion de entrenamientos, partidos y eventos del mes."),
+  calendario: screenCalendario,
   informes: () => screenSoon("Informes", "Resumenes exportables por jugador y por plantel."),
 };
 
@@ -877,6 +881,171 @@ async function screenConfig() {
         <div class="kv"><span class="muted">Numero</span><b>${esc(p.numero_camiseta ?? "—")}</b></div>
       ` : `<p class="muted">La edicion de cuentas y roles llega en el proximo paso.</p>`}
     </div>`;
+}
+
+/* ======================================================================
+   CALENDARIO
+   ====================================================================== */
+
+function isoLocal(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+function mesRelativo(anio, mes, delta) {
+  const d = new Date(anio, mes + delta, 1);
+  return { anio: d.getFullYear(), mes: d.getMonth() };
+}
+
+let calRef = null;
+
+async function screenCalendario() {
+  crumbs("Calendario");
+  if (!calRef) {
+    const h = new Date();
+    calRef = { anio: h.getFullYear(), mes: h.getMonth() };
+  }
+  const { anio, mes } = calRef;
+
+  const primero = new Date(anio, mes, 1);
+  const offset = (primero.getDay() + 6) % 7;            // lunes primero
+  const inicio = new Date(anio, mes, 1 - offset);
+  const celdas = Array.from({ length: 42 }, (_, i) => {
+    const d = new Date(inicio);
+    d.setDate(inicio.getDate() + i);
+    return d;
+  });
+
+  const eventos = await API.get(`/eventos?desde=${isoLocal(celdas[0])}&hasta=${isoLocal(celdas[41])}`);
+  const porFecha = {};
+  eventos.forEach(e => (porFecha[e.fecha] = porFecha[e.fecha] || []).push(e));
+
+  const hoyIso = isoLocal(new Date());
+  const editable = esCT();
+
+  view().innerHTML = pageHead("Calendario",
+    editable ? "Planificacion del mes · toca un dia para agendar" : "Planificacion del equipo") + `
+    <div class="cal-bar">
+      <button class="cal-nav" id="cal-prev" aria-label="Mes anterior">‹</button>
+      <button class="cal-nav" id="cal-next" aria-label="Mes siguiente">›</button>
+      <span class="cal-month">${MESES[mes]} ${anio}</span>
+      <button class="btn ghost" id="cal-hoy" style="padding:6px 12px">Hoy</button>
+      <span class="spacer"></span>
+      ${editable ? `<button class="btn" id="cal-add">+ Evento</button>` : ""}
+    </div>
+    <div class="cal-grid">
+      ${DOW.map(d => `<div class="cal-dow">${d}</div>`).join("")}
+      ${celdas.map(d => {
+        const iso = isoLocal(d);
+        const evs = porFecha[iso] || [];
+        return `<div class="cal-cell ${d.getMonth() !== mes ? "otro-mes" : ""} ${iso === hoyIso ? "hoy" : ""} ${editable ? "editable" : ""}" data-fecha="${iso}">
+          <span class="cal-num">${d.getDate()}</span>
+          ${evs.slice(0, 4).map(e => `<div class="cal-ev ${esc(e.tipo)}" data-ev="${e.id}">${e.hora_inicio ? `<span class="ev-h">${esc(e.hora_inicio)}</span> ` : ""}${esc(e.titulo)}</div>`).join("")}
+          ${evs.length > 4 ? `<span class="cal-num">+${evs.length - 4}</span>` : ""}
+        </div>`;
+      }).join("")}
+    </div>
+    <p class="muted" style="font-size:.82rem;margin-top:12px">
+      <span class="cal-ev entrenamiento" style="display:inline-block">Entrenamiento</span>
+      <span class="cal-ev partido" style="display:inline-block">Partido</span>
+      <span class="cal-ev gimnasio" style="display:inline-block">Gimnasio</span>
+      <span class="cal-ev recuperacion" style="display:inline-block">Recuperacion</span>
+    </p>`;
+
+  $("#cal-prev").onclick = () => { calRef = mesRelativo(anio, mes, -1); screenCalendario(); };
+  $("#cal-next").onclick = () => { calRef = mesRelativo(anio, mes, 1); screenCalendario(); };
+  $("#cal-hoy").onclick = () => {
+    const h = new Date();
+    calRef = { anio: h.getFullYear(), mes: h.getMonth() };
+    screenCalendario();
+  };
+
+  view().querySelectorAll(".cal-ev[data-ev]").forEach(el => el.addEventListener("click", ev => {
+    ev.stopPropagation();
+    abrirEventoModal(eventos.find(x => x.id === +el.dataset.ev), editable);
+  }));
+
+  if (editable) {
+    $("#cal-add").onclick = () => abrirEventoModal({ fecha: hoyIso }, true);
+    view().querySelectorAll(".cal-cell.editable").forEach(c =>
+      c.addEventListener("click", () => abrirEventoModal({ fecha: c.dataset.fecha }, true)));
+  }
+}
+
+function abrirEventoModal(ev, editable) {
+  ev = ev || {};
+  const esNuevo = !ev.id;
+  const ro = !editable;
+  const dis = ro ? "disabled" : "";
+
+  const bg = document.createElement("div");
+  bg.className = "modal-bg";
+  bg.innerHTML = `<div class="modal">
+    <h3>${esNuevo ? "Nuevo evento" : (ro ? "Evento" : "Editar evento")}</h3>
+    <div class="form-grid">
+      <div class="field full"><label>Titulo</label><input id="ev-titulo" value="${esc(ev.titulo || "")}" ${dis}></div>
+      <div class="field"><label>Fecha</label><input id="ev-fecha" type="date" value="${esc(ev.fecha || "")}" ${dis}></div>
+      <div class="field"><label>Tipo</label><select id="ev-tipo" ${dis}>
+        ${TIPOS_EVENTO.map(t => `<option value="${t}" ${ev.tipo === t ? "selected" : ""}>${t}</option>`).join("")}
+      </select></div>
+      <div class="field"><label>Hora inicio</label><input id="ev-hi" type="time" value="${esc(ev.hora_inicio || "")}" ${dis}></div>
+      <div class="field"><label>Hora fin</label><input id="ev-hf" type="time" value="${esc(ev.hora_fin || "")}" ${dis}></div>
+      <div class="field full"><label>Lugar</label><input id="ev-lugar" value="${esc(ev.lugar || "")}" ${dis}></div>
+      <div class="field full"><label>Rival (si es partido)</label><input id="ev-rival" value="${esc(ev.rival || "")}" ${dis}></div>
+      <div class="field full"><label>Notas</label><textarea id="ev-notas" ${dis}>${esc(ev.notas || "")}</textarea></div>
+      <div class="field full"><div id="ev-msg" class="notice err" hidden></div></div>
+    </div>
+    <div class="modal-actions">
+      ${!esNuevo && editable ? `<button class="btn danger" id="ev-del">Eliminar</button>` : ""}
+      <span class="spacer"></span>
+      <button class="btn ghost" id="ev-cancel">${ro ? "Cerrar" : "Cancelar"}</button>
+      ${editable ? `<button class="btn" id="ev-save">Guardar</button>` : ""}
+    </div>
+  </div>`;
+  document.body.appendChild(bg);
+
+  const cerrar = () => bg.remove();
+  bg.addEventListener("click", e => { if (e.target === bg) cerrar(); });
+  $("#ev-cancel", bg).onclick = cerrar;
+
+  if (!editable) return;
+
+  $("#ev-save", bg).onclick = async () => {
+    const payload = {
+      titulo: $("#ev-titulo", bg).value.trim(),
+      fecha: $("#ev-fecha", bg).value,
+      tipo: $("#ev-tipo", bg).value,
+      hora_inicio: $("#ev-hi", bg).value || null,
+      hora_fin: $("#ev-hf", bg).value || null,
+      lugar: $("#ev-lugar", bg).value.trim() || null,
+      rival: $("#ev-rival", bg).value.trim() || null,
+      notas: $("#ev-notas", bg).value.trim() || null,
+    };
+    const msg = $("#ev-msg", bg);
+    msg.hidden = true;
+    try {
+      if (esNuevo) await API.post("/eventos", payload);
+      else await API.put("/eventos/" + ev.id, payload);
+      cerrar();
+      screenCalendario();
+    } catch (e) {
+      msg.textContent = e.message;
+      msg.hidden = false;
+    }
+  };
+
+  if (!esNuevo) {
+    $("#ev-del", bg).onclick = async () => {
+      if (!confirm("Eliminar este evento del calendario?")) return;
+      try {
+        await API.del("/eventos/" + ev.id);
+        cerrar();
+        screenCalendario();
+      } catch (e) {
+        const msg = $("#ev-msg", bg);
+        msg.textContent = e.message;
+        msg.hidden = false;
+      }
+    };
+  }
 }
 
 /* -------------------------------------------------------------- arranque -- */

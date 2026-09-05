@@ -36,5 +36,6 @@ const API = {
   get(p) { return this.req("GET", p); },
   post(p, b) { return this.req("POST", p, b); },
   put(p, b) { return this.req("PUT", p, b); },
+  del(p) { return this.req("DELETE", p); },
   postForm(p, f) { return this.req("POST", p, f, true); },
 };

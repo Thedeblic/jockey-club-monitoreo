@@ -363,6 +363,53 @@ def ruta_registrar_alta(lesion_id):
     return jsonify(db.obtener_lesion(lesion_id))
 
 
+# ---------------------------------------------------------------------------
+# Calendario - lo ve todo el mundo, solo el CT lo edita
+# ---------------------------------------------------------------------------
+
+
+@app.route("/api/eventos", methods=["GET"])
+@login_requerido
+def ruta_listar_eventos():
+    desde = request.args.get("desde")
+    hasta = request.args.get("hasta")
+    if not desde or not hasta:
+        return jsonify({"error": "Faltan los parametros desde y hasta"}), 400
+    return jsonify(db.listar_eventos(desde, hasta))
+
+
+@app.route("/api/eventos", methods=["POST"])
+@solo_ct
+def ruta_crear_evento():
+    data = request.get_json() or {}
+    if not data.get("fecha") or not data.get("titulo"):
+        return jsonify({"error": "El evento necesita fecha y titulo"}), 400
+    if data.get("tipo") and data["tipo"] not in db.TIPOS_EVENTO:
+        return jsonify({"error": f"Tipo invalido. Opciones: {', '.join(db.TIPOS_EVENTO)}"}), 400
+    nuevo_id = db.insertar_evento(data, creado_por=g.usuario["id"])
+    return jsonify(db.obtener_evento(nuevo_id)), 201
+
+
+@app.route("/api/eventos/<int:evento_id>", methods=["PUT"])
+@solo_ct
+def ruta_editar_evento(evento_id):
+    if db.obtener_evento(evento_id) is None:
+        return jsonify({"error": "Evento no encontrado"}), 404
+    data = request.get_json() or {}
+    if data.get("tipo") and data["tipo"] not in db.TIPOS_EVENTO:
+        return jsonify({"error": f"Tipo invalido. Opciones: {', '.join(db.TIPOS_EVENTO)}"}), 400
+    return jsonify(db.actualizar_evento(evento_id, data))
+
+
+@app.route("/api/eventos/<int:evento_id>", methods=["DELETE"])
+@solo_ct
+def ruta_eliminar_evento(evento_id):
+    if db.obtener_evento(evento_id) is None:
+        return jsonify({"error": "Evento no encontrado"}), 404
+    db.eliminar_evento(evento_id)
+    return jsonify({"ok": True})
+
+
 db.crear_tablas()
 
 if __name__ == "__main__":
