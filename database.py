@@ -597,6 +597,70 @@ def resumen_carga_jugador(jugador_id, dias=28):
     return {"jugador_id": jugador_id, "rango_dias": dias, "serie_diaria": serie_diaria, **m}
 
 
+def alertas_plantel():
+    """Todos los jugadores que hoy necesitan atencion: lesion, carga o hidratacion."""
+    conn = get_conexion()
+    jugadores = conn.execute(
+        "SELECT id, nombre, apellido, posicion_principal FROM usuarios "
+        "WHERE rol = 'jugador' AND activo = 1"
+    ).fetchall()
+
+    les_por_jug = {}
+    for fila in conn.execute("SELECT * FROM lesiones WHERE estado != 'alta'").fetchall():
+        les_por_jug.setdefault(fila["jugador_id"], []).append(_armar_lesion(fila))
+
+    orden_sev = {"rojo": 0, "naranja": 1, "amarillo": 2, "verde": 3, "gris": 4}
+    detalle_zona = {
+        "atencion": "Carga baja o irregular",
+        "alta": "Pico de carga aguda",
+        "muy_alta": "Carga aguda muy alta",
+    }
+    alertas = []
+
+    for j in jugadores:
+        jid = j["id"]
+        base = {
+            "jugador_id": jid,
+            "jugador": f'{j["nombre"]} {j["apellido"]}'.strip(),
+            "posicion": j["posicion_principal"],
+        }
+
+        for l in les_por_jug.get(jid, []):
+            alertas.append({
+                **base, "tipo": "lesion", "semaforo": l["semaforo"],
+                "lesion_id": l["id"],
+                "titulo": l["diagnostico"],
+                "detalle": f'{l["estado_label"]} · dia {l["dia_actual"] if l["dia_actual"] is not None else "?"}'
+                           + (f' de ~{l["dias_estimados"]}' if l.get("dias_estimados") else ""),
+            })
+
+        m = _acwr_jugador(conn, jid)
+        if m["zona"] in detalle_zona:
+            ref = m["acwr_ewma"] if m["acwr_ewma"] is not None else m["acwr_ra"]
+            alertas.append({
+                **base, "tipo": "carga", "semaforo": m["semaforo"],
+                "titulo": f'ACWR {ref if ref is not None else "s/d"}',
+                "detalle": detalle_zona[m["zona"]],
+            })
+
+        h = conn.execute(
+            "SELECT * FROM hidratacion WHERE jugador_id = ? ORDER BY fecha DESC, id DESC LIMIT 1",
+            (jid,),
+        ).fetchone()
+        if h:
+            ha = _armar_hidratacion(h)
+            if ha["semaforo"] in ("naranja", "rojo"):
+                alertas.append({
+                    **base, "tipo": "hidratacion", "semaforo": ha["semaforo"],
+                    "titulo": f'{ha["porcentaje_perdida"]}% de perdida de peso',
+                    "detalle": f'{ha["clasificacion"]} · {ha["fecha"]}',
+                })
+
+    alertas.sort(key=lambda a: (orden_sev.get(a["semaforo"], 5), a["jugador"]))
+    conn.close()
+    return alertas
+
+
 # ---------------------------------------------------------------------------
 # Hidratacion (peso pre/post partido)
 # ---------------------------------------------------------------------------

@@ -282,68 +282,74 @@ function screenInicio() {
   return esCT() ? screenInicioCT() : screenInicioJugador();
 }
 
+const ALERTA_META = {
+  lesion: { ic: "✚", label: "Lesion" },
+  carga: { ic: "▲", label: "Carga" },
+  hidratacion: { ic: "◐", label: "Hidratacion" },
+};
+
 async function screenInicioCT() {
   crumbs("Inicio");
-  const [js, lesiones, resumen] = await Promise.all([
+  const [js, lesiones, resumen, alertas] = await Promise.all([
     jugadores(),
     API.get("/lesiones?activas=1"),
     API.get("/carga/resumen?dias=7"),
+    API.get("/alertas"),
   ]);
-  // "no disponible" = lesionado o entrenando adaptado (todavia no habilitado a competir)
   const fueraIds = new Set(lesiones.filter(l => ["lesionado", "disponible_entrenar"].includes(l.estado)).map(l => l.jugador_id));
-  const lesionPorJugador = {};
-  lesiones.forEach(l => { lesionPorJugador[l.jugador_id] = l; });
   const total = js.length;
-  const enRiesgo = resumen.por_jugador.filter(p => ["alta", "muy_alta"].includes(p.zona));
   const disponibles = total - fueraIds.size;
   const pctDisp = total ? Math.round((disponibles / total) * 100) : 100;
-  const observar = js.filter(j => fueraIds.has(j.id)).map(j => ({ ...j, lesion: lesionPorJugador[j.id] }));
+  const jugConAlerta = new Set(alertas.map(a => a.jugador_id)).size;
+  const rojas = alertas.filter(a => a.semaforo === "rojo").length;
+  const puedeRTS = esLesiones();
 
-  view().innerHTML = pageHead("Panel del plantel", "Estado del plantel hoy") + `
+  view().innerHTML = pageHead("Panel del plantel", "Lo que necesita atencion hoy") + `
     <div class="grid cols-4">
       ${kpi("Jugadores", total)}
       ${kpi("Disponibles", disponibles)}
-      ${kpi("En alerta", fueraIds.size + enRiesgo.length, (fueraIds.size + enRiesgo.length) ? "accent" : "")}
+      ${kpi("Con alerta", jugConAlerta, jugConAlerta ? "accent" : "")}
       ${kpi("Disponibilidad", pctDisp + "%")}
     </div>
-    <div class="grid cols-2 section-gap" style="align-items:start">
-      <div class="card">
-        <h3>Carga del plantel · ultimos 7 dias</h3>
-        <p class="card-sub">Suma diaria en UA. La linea marca el promedio.</p>
-        <div style="height:230px"><canvas id="ch-carga7"></canvas></div>
+
+    <div class="card section-gap">
+      <div style="display:flex;justify-content:space-between;align-items:baseline">
+        <h3 style="margin:0">Alertas de hoy</h3>
+        <span class="muted" style="font-size:.82rem">${alertas.length} alerta${alertas.length === 1 ? "" : "s"}${rojas ? " · " + rojas + " urgente" + (rojas === 1 ? "" : "s") : ""}</span>
       </div>
-      <div class="card">
-        <h3>Jugadores a observar</h3>
-        ${filaObservar(observar, enRiesgo)}
-      </div>
+      <div style="margin-top:14px">${
+        alertas.length
+          ? `<div class="alerta-list">${alertas.map(a => filaAlerta(a, puedeRTS)).join("")}</div>`
+          : `<p class="muted">Sin alertas. Todo el plantel en zona adecuada.</p>`
+      }</div>
+    </div>
+
+    <div class="card section-gap">
+      <h3>Carga del plantel · ultimos 7 dias</h3>
+      <p class="card-sub">Suma diaria en UA. La linea marca el promedio.</p>
+      <div style="height:230px"><canvas id="ch-carga7"></canvas></div>
     </div>`;
 
   graficoCargaDiaria("ch-carga7", resumen.serie_diaria);
+
+  view().querySelectorAll("[data-alerta]").forEach(el =>
+    el.addEventListener("click", () => { location.hash = el.dataset.alerta; }));
 }
 
-function filaObservar(lesionados, enRiesgo) {
-  const items = [
-    ...lesionados.map(j => ({
-      nombre: nombreJugador(j),
-      sub: (j.posicion_principal || "") + " · " + (j.lesion ? j.lesion.estado_label.toLowerCase() : "lesion activa"),
-      ini: iniciales(j.nombre, j.apellido),
-      chip: j.lesion ? j.lesion.semaforo : "rojo",
-      txt: j.lesion && j.lesion.estado === "disponible_entrenar" ? "Adaptado" : "Lesion",
-    })),
-    ...enRiesgo.map(p => ({
-      nombre: p.nombre, sub: (p.posicion || "") + " · ACWR " + (p.acwr_ewma ?? p.acwr_ra ?? "–"),
-      ini: inicialesDe(p.nombre), chip: p.semaforo,
-      txt: p.zona === "muy_alta" ? "Carga muy alta" : "Carga alta",
-    })),
-  ];
-  if (!items.length) return `<p class="muted">Sin alertas. Todo el plantel en zona adecuada.</p>`;
-  return `<table class="table"><tbody>${items.map(it => `<tr>
-    <td><div class="cell-player">
-      <span class="avatar">${esc(it.ini)}</span>
-      <div><div class="cp-name">${esc(it.nombre)}</div><div class="cp-pos">${esc(it.sub)}</div></div>
-    </div></td>
-    <td style="text-align:right"><span class="chip ${esc(it.chip)}">${esc(it.txt)}</span></td>
-  </tr>`).join("")}</tbody></table>`;
+function filaAlerta(a, puedeRTS) {
+  const meta = ALERTA_META[a.tipo] || { ic: "•", label: a.tipo };
+  let link = `#/jugador/${a.jugador_id}`;
+  if (a.tipo === "lesion") link = puedeRTS && a.lesion_id ? `#/lesion/${a.lesion_id}` : `#/jugador/${a.jugador_id}/lesiones`;
+  else if (a.tipo === "carga") link = `#/jugador/${a.jugador_id}/carga`;
+  else if (a.tipo === "hidratacion") link = `#/jugador/${a.jugador_id}/hidratacion`;
+  return `<div class="alerta-item" data-alerta="${link}">
+    <span class="alerta-ic ${esc(a.semaforo)}">${meta.ic}</span>
+    <div class="alerta-main">
+      <div class="alerta-t"><b>${esc(a.jugador)}</b> <span class="muted">${esc(a.posicion || "")}</span></div>
+      <div class="alerta-d">${esc(meta.label)} — ${esc(a.titulo)} · ${esc(a.detalle)}</div>
+    </div>
+    <span class="chip ${esc(a.semaforo)}">${esc(a.semaforo === "rojo" ? "Urgente" : a.semaforo === "naranja" ? "Atencion" : "Seguir")}</span>
+  </div>`;
 }
 
 async function screenInicioJugador() {

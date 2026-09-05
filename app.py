@@ -291,6 +291,12 @@ def ruta_carga_jugador(jugador_id):
     return jsonify(db.resumen_carga_jugador(jugador_id))
 
 
+@app.route("/api/alertas", methods=["GET"])
+@solo_ct
+def ruta_alertas():
+    return jsonify(db.alertas_plantel())
+
+
 # ---------------------------------------------------------------------------
 # Hidratacion - la registra el propio jugador
 # ---------------------------------------------------------------------------
