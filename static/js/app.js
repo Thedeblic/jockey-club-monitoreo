@@ -659,33 +659,100 @@ async function screenPlantel() {
    FICHA DEL JUGADOR (CT)
    ====================================================================== */
 
+const FICHA_TABS = [["resumen", "Resumen"], ["carga", "Carga"], ["hidratacion", "Hidratacion"], ["lesiones", "Lesiones"]];
+let _fichaCache = null;
+
 async function screenFichaJugador(params) {
   const id = +(params && params[0]);
   if (!id) { location.hash = "#/plantel"; return; }
-  crumbs("Plantel", "Ficha");
+  const tab = (params && params[1]) || "resumen";
+  crumbs("Plantel", nombreJugadorCorto(id));
 
-  const [j, carga] = await Promise.all([
-    API.get("/jugadores/" + id),
-    API.get("/carga/jugador/" + id),
-  ]);
-  const acwr = carga.acwr_ewma ?? carga.acwr_ra;
+  let j, carga;
+  if (_fichaCache && _fichaCache.id === id) {
+    ({ j, carga } = _fichaCache);
+  } else {
+    [j, carga] = await Promise.all([API.get("/jugadores/" + id), API.get("/carga/jugador/" + id)]);
+    _fichaCache = { id, j, carga };
+  }
+
   const lesiones = j.lesiones || [];
   const activas = lesiones.filter(l => l.activa);
-  const historial = lesiones.filter(l => !l.activa);
-  const hidra = j.hidratacion || [];
-  const puedeRTS = esLesiones();
+  const peor = activas.sort((a, b) => a.fase_idx - b.fase_idx)[0];
+  const estadoPill = peor
+    ? `<span class="chip ${esc(peor.semaforo)}">${esc(peor.estado_label)}</span>`
+    : `<span class="chip verde">Disponible</span>`;
+  const diasSinLesion = calcDiasSinLesion(lesiones, activas);
+  const diasBaja365 = lesiones
+    .filter(l => (Date.now() - new Date(l.fecha_lesion)) < 365 * 86400000)
+    .reduce((s, l) => s + (l.dias_baja || 0), 0);
+  const dispTemporada = Math.max(0, Math.min(100, Math.round(100 - diasBaja365 / 3.65)));
 
   view().innerHTML = `
-    <div class="page-head">
-      <span class="avatar" style="width:64px;height:64px;font-size:1.3rem;background-image:url('/api/jugadores/${id}/foto');background-size:cover">${j.foto ? "" : esc(iniciales(j.nombre, j.apellido))}</span>
-      <div>
-        <h1 style="text-transform:none">${esc(nombreJugador(j))}</h1>
-        <p>#${esc(j.numero_camiseta ?? "–")} · ${esc(j.posicion_principal || "—")}${j.posicion_secundaria ? " / " + esc(j.posicion_secundaria) : ""} · ${esc(j.edad ?? "—")} anios${j.altura_cm ? " · " + esc(j.altura_cm) + " cm" : ""}${j.peso_kg ? " · " + esc(j.peso_kg) + " kg" : ""}</p>
+    <div class="ficha-head">
+      <span class="ficha-foto" style="background-image:url('/api/jugadores/${id}/foto')">${j.foto ? "" : esc(iniciales(j.nombre, j.apellido))}</span>
+      <div class="ficha-id">
+        <div class="fh-num tnum">#${esc(j.numero_camiseta ?? "–")}</div>
+        <h1>${esc(nombreJugador(j))}</h1>
+        <p>${esc(j.posicion_principal || "—")}${j.posicion_secundaria ? " / " + esc(j.posicion_secundaria) : ""} · ${esc(j.edad ?? "—")} años${j.altura_cm ? " · " + esc((j.altura_cm / 100).toFixed(2)) + " m" : ""}${j.peso_kg ? " · " + esc(j.peso_kg) + " kg" : ""}</p>
+        <div style="margin-top:8px">${estadoPill}</div>
       </div>
-      <span class="spacer" style="flex:1"></span>
-      <a class="btn ghost" href="#/plantel" style="text-decoration:none;align-self:flex-start">‹ Plantel</a>
+      <div class="ficha-stats">
+        ${miniStat("Disponibilidad", dispTemporada + "%", "temporada")}
+        ${miniStat("Dias sin lesion", diasSinLesion ?? "—", diasSinLesion === null ? "lesion activa" : "")}
+      </div>
+      <a class="btn ghost" href="#/plantel" style="text-decoration:none">‹ Plantel</a>
     </div>
 
+    <div class="ftabs" id="ficha-tabs">
+      ${FICHA_TABS.map(t => `<button data-t="${t[0]}" class="${t[0] === tab ? "on" : ""}">${t[1]}</button>`).join("")}
+    </div>
+    <div id="ficha-panel"></div>`;
+
+  $("#ficha-tabs").addEventListener("click", e => {
+    const b = e.target.closest("button");
+    if (b) location.hash = `#/jugador/${id}/${b.dataset.t}`;
+  });
+
+  renderFichaTab(tab, j, carga);
+}
+
+function nombreJugadorCorto(id) {
+  if (_fichaCache && _fichaCache.id === id) return nombreJugador(_fichaCache.j);
+  const cache = (state.jugadores || []).find(x => x.id === id);
+  return cache ? nombreJugador(cache) : "Ficha";
+}
+function miniStat(label, valor, sub) {
+  return `<div class="mini-stat">
+    <span class="ms-v tnum">${esc(valor)}</span>
+    <span class="ms-l">${esc(label)}</span>
+    ${sub ? `<span class="ms-s">${esc(sub)}</span>` : ""}
+  </div>`;
+}
+function calcDiasSinLesion(lesiones, activas) {
+  if (activas.length) return null;
+  const fines = lesiones
+    .map(l => l.fecha_disponible_competir || l.fecha_alta || l.fecha_lesion)
+    .filter(Boolean)
+    .map(f => new Date(f));
+  if (!fines.length) return null;
+  const ultima = new Date(Math.max(...fines));
+  return Math.max(0, Math.floor((Date.now() - ultima) / 86400000));
+}
+
+function renderFichaTab(tab, j, carga) {
+  const panel = $("#ficha-panel");
+  if (tab === "carga") return fichaTabCarga(panel, j, carga);
+  if (tab === "hidratacion") return fichaTabHidra(panel, j);
+  if (tab === "lesiones") return fichaTabLesiones(panel, j, carga);
+  return fichaTabResumen(panel, j, carga);
+}
+
+function fichaTabResumen(panel, j, carga) {
+  const acwr = carga.acwr_ewma ?? carga.acwr_ra;
+  const activas = (j.lesiones || []).filter(l => l.activa);
+  const hidra = j.hidratacion || [];
+  panel.innerHTML = `
     <div class="grid cols-4">
       ${kpi("Carga 7 dias", carga.carga_7d.toLocaleString("es") + " UA")}
       ${kpi("Carga 28 dias", carga.carga_28d.toLocaleString("es") + " UA")}
@@ -696,72 +763,266 @@ async function screenFichaJugador(params) {
       </div>
       ${kpi("Lesiones activas", activas.length, activas.length ? "accent" : "")}
     </div>
-
     <div class="card section-gap">
       <h3>Carga diaria · ultimos 28 dias</h3>
       <div style="height:230px"><canvas id="ch-fj-carga"></canvas></div>
     </div>
-
-    <div class="grid cols-2 section-gap" style="align-items:start">
-      <div class="card">
-        <h3>Hidratacion</h3>
-        ${hidra.length ? `
-          <div style="display:flex;align-items:flex-end;gap:14px;margin-bottom:10px">
-            <span class="tnum" style="font-family:'Barlow Semi Condensed';font-weight:700;font-size:2rem">${hidra[0].porcentaje_perdida}%</span>
-            <span class="muted">${esc(hidra[0].fecha)} · deficit ${hidra[0].deficit_kg} kg<br><span class="chip ${esc(hidra[0].semaforo)}">${esc(hidra[0].clasificacion)}</span></span>
-          </div>
-          ${hidra.length > 1 ? `<div style="height:130px;margin-bottom:8px"><canvas id="ch-fj-hidra"></canvas></div>` : ""}
-          <div class="table-wrap"><table class="table"><tbody>${hidra.slice(0, 5).map(h => `<tr>
-            <td class="tnum muted">${esc(h.fecha)}</td><td class="muted">${esc(h.contexto)}</td>
-            <td class="tnum">${h.deficit_kg} kg</td>
-            <td style="text-align:right"><span class="chip ${esc(h.semaforo)}">${h.porcentaje_perdida}%</span></td>
-          </tr>`).join("")}</tbody></table></div>
-        ` : `<p class="muted">Sin registros de hidratacion.</p>`}
-      </div>
-      <div class="card">
-        <h3>Antecedentes de lesiones</h3>
-        ${activas.map(l => `<div class="notice ${l.semaforo === "rojo" ? "err" : "ok"}" style="margin-bottom:10px;cursor:pointer" data-lesion="${l.id}">
-          <b>${esc(l.diagnostico)}</b> · <span class="chip ${esc(l.semaforo)}">${esc(l.estado_label)}</span><br>
-          <span style="font-size:.85rem">${esc(l.zona || "")}${l.lado ? " · " + esc(l.lado) : ""} · dia ${l.dia_actual ?? "—"}${l.dias_estimados ? " de ~" + l.dias_estimados : ""}${puedeRTS ? " · abrir retorno ›" : ""}</span>
-        </div>`).join("")}
-        ${historial.length ? `<div class="table-wrap"><table class="table">
-          <thead><tr><th>Diagnostico</th><th>Zona</th><th>Fecha</th><th style="text-align:right">Baja</th></tr></thead>
-          <tbody>${historial.map(l => `<tr>
-            <td>${esc(l.diagnostico)}</td>
-            <td class="muted">${esc(l.zona || "—")}${l.lado ? " · " + esc(l.lado) : ""}</td>
-            <td class="tnum muted">${esc(l.fecha_lesion)}</td>
-            <td style="text-align:right"><b class="tnum">${l.dias_baja ?? "—"} d</b></td>
-          </tr>`).join("")}</tbody>
-        </table></div>` : (activas.length ? "" : `<p class="muted">Sin lesiones registradas.</p>`)}
-      </div>
-    </div>`;
-
+    ${hidra.length ? `<div class="card section-gap"><h3>Ultima hidratacion</h3>
+      <div style="display:flex;align-items:flex-end;gap:14px">
+        <span class="tnum" style="font-family:'Barlow Semi Condensed';font-weight:700;font-size:2rem">${hidra[0].porcentaje_perdida}%</span>
+        <span class="muted">${esc(hidra[0].fecha)} · deficit ${hidra[0].deficit_kg} kg · <span class="chip ${esc(hidra[0].semaforo)}">${esc(hidra[0].clasificacion)}</span></span>
+      </div></div>` : ""}`;
   graficoCargaDiaria("ch-fj-carga", carga.serie_diaria, { thin: true });
+}
 
-  if (puedeRTS) {
-    view().querySelectorAll("[data-lesion]").forEach(el =>
-      el.addEventListener("click", () => { location.hash = "#/lesion/" + el.dataset.lesion; }));
-  }
+function fichaTabCarga(panel, j, carga) {
+  const acwr = carga.acwr_ewma ?? carga.acwr_ra;
+  panel.innerHTML = `
+    <div class="grid cols-3">
+      ${kpi("Carga 7 dias", carga.carga_7d.toLocaleString("es") + " UA")}
+      ${kpi("Carga 28 dias", carga.carga_28d.toLocaleString("es") + " UA")}
+      <div class="card kpi"><span class="k-label">ACWR (EWMA / RA)</span>
+        <span class="k-value tnum">${acwr ?? "–"} / ${carga.acwr_ra ?? "–"}</span>
+        <span class="chip ${esc(carga.semaforo)}" style="align-self:flex-start;margin-top:6px">${esc(zonaLabel(carga.zona))}</span></div>
+    </div>
+    <div class="card section-gap"><h3>Carga diaria · ultimos 28 dias</h3>
+      <div style="height:260px"><canvas id="ch-fj-carga"></canvas></div></div>`;
+  graficoCargaDiaria("ch-fj-carga", carga.serie_diaria, { thin: true });
+}
 
+function fichaTabHidra(panel, j) {
+  const hidra = j.hidratacion || [];
+  if (!hidra.length) { panel.innerHTML = `<div class="card"><p class="muted">Sin registros de hidratacion.</p></div>`; return; }
+  panel.innerHTML = `
+    <div class="card">
+      <h3>Hidratacion</h3>
+      <div style="display:flex;align-items:flex-end;gap:14px;margin-bottom:12px">
+        <span class="tnum" style="font-family:'Barlow Semi Condensed';font-weight:700;font-size:2.2rem">${hidra[0].porcentaje_perdida}%</span>
+        <span class="muted">${esc(hidra[0].fecha)} · deficit ${hidra[0].deficit_kg} kg<br><span class="chip ${esc(hidra[0].semaforo)}">${esc(hidra[0].clasificacion)}</span></span>
+      </div>
+      ${hidra.length > 1 ? `<div style="height:170px;margin-bottom:12px"><canvas id="ch-fj-hidra"></canvas></div>` : ""}
+      <div class="table-wrap"><table class="table">
+        <thead><tr><th>Fecha</th><th>Contexto</th><th>Deficit</th><th style="text-align:right">% perdido</th></tr></thead>
+        <tbody>${hidra.slice(0, 8).map(h => `<tr>
+          <td class="tnum muted">${esc(h.fecha)}</td><td class="muted">${esc(h.contexto)}</td>
+          <td class="tnum">${h.deficit_kg} kg</td>
+          <td style="text-align:right"><span class="chip ${esc(h.semaforo)}">${h.porcentaje_perdida}%</span></td>
+        </tr>`).join("")}</tbody></table></div>
+    </div>`;
   if (hidra.length > 1) {
     const orden = hidra.slice().reverse();
     chart("ch-fj-hidra", {
       type: "line",
-      data: {
-        labels: orden.map(h => ddmm(h.fecha)),
-        datasets: [{
-          data: orden.map(h => h.porcentaje_perdida),
-          borderColor: COL.accent, backgroundColor: "transparent",
-          pointBackgroundColor: orden.map(h => COL[h.semaforo] || COL.ink), pointRadius: 3, tension: 0.3,
-        }],
-      },
-      options: {
-        responsive: true, maintainAspectRatio: false,
+      data: { labels: orden.map(h => ddmm(h.fecha)), datasets: [{
+        data: orden.map(h => h.porcentaje_perdida), borderColor: COL.accent, backgroundColor: "transparent",
+        pointBackgroundColor: orden.map(h => COL[h.semaforo] || COL.ink), pointRadius: 3, tension: 0.3 }] },
+      options: { responsive: true, maintainAspectRatio: false,
         scales: { x: ejeSinGrilla, y: { ...ejeGrillaTenue, beginAtZero: true, ticks: { callback: v => v + "%" } } },
-        plugins: { tooltip: { callbacks: { label: c => c.parsed.y + "% perdido" } } },
-      },
+        plugins: { tooltip: { callbacks: { label: c => c.parsed.y + "% perdido" } } } },
     });
   }
+}
+
+/* ---- ficha: pestaña Lesiones (dashboard) ---- */
+
+const ZONAS_MI = ["isquio", "cuadriceps", "cuádriceps", "aductor", "gemelo", "gastrocnemio",
+  "soleo", "sóleo", "tobillo", "rodilla", "tibial", "pantorrilla", "pie", "aquiles", "psoas", "recto femoral"];
+
+// posicion aproximada de cada zona en el mapa corporal (viewBox 120 x 300)
+const ZONA_MAPA = {
+  hombro: { v: "ant", x: 84, y: 58 }, pecho: { v: "ant", x: 60, y: 74 },
+  abdomen: { v: "ant", x: 60, y: 100 }, cadera: { v: "ant", x: 60, y: 122 },
+  aductor: { v: "ant", x: 68, y: 140 }, cuadriceps: { v: "ant", x: 74, y: 162 },
+  "cuádriceps": { v: "ant", x: 74, y: 162 }, "recto femoral": { v: "ant", x: 72, y: 158 },
+  psoas: { v: "ant", x: 64, y: 128 }, rodilla: { v: "ant", x: 76, y: 202 },
+  tibial: { v: "ant", x: 76, y: 230 }, tobillo: { v: "ant", x: 78, y: 262 },
+  pie: { v: "ant", x: 80, y: 278 },
+  lumbar: { v: "post", x: 60, y: 100 }, "isquiotibiales": { v: "post", x: 74, y: 168 },
+  isquiotibial: { v: "post", x: 74, y: 168 }, isquio: { v: "post", x: 74, y: 168 },
+  gemelo: { v: "post", x: 76, y: 232 }, gastrocnemio: { v: "post", x: 76, y: 232 },
+  pantorrilla: { v: "post", x: 76, y: 232 }, "soleo": { v: "post", x: 76, y: 244 },
+  "sóleo": { v: "post", x: 76, y: 244 }, aquiles: { v: "post", x: 78, y: 258 },
+};
+
+function zonaPos(zona, lado) {
+  const z = (zona || "").toLowerCase().trim();
+  let hit = ZONA_MAPA[z];
+  if (!hit) { const k = Object.keys(ZONA_MAPA).find(k => z.includes(k)); hit = k ? ZONA_MAPA[k] : null; }
+  if (!hit) return null;
+  const izq = (lado || "").toLowerCase().includes("izq");
+  return { v: hit.v, x: izq ? 120 - hit.x : hit.x, y: hit.y };
+}
+
+function siluetaSVG(marcas, vista) {
+  const dots = marcas.filter(m => m.pos && m.pos.v === vista).map(m =>
+    `<circle cx="${m.pos.x}" cy="${m.pos.y}" r="5.5" fill="var(--rojo)" stroke="var(--surface)" stroke-width="1.5"/>`).join("");
+  return `<svg viewBox="0 0 120 300" role="img" aria-label="Mapa corporal de lesiones (${vista === "ant" ? "vista anterior" : "vista posterior"})" style="width:110px;height:auto">
+    <g fill="var(--surface-2)" stroke="var(--line)" stroke-width="1">
+      <circle cx="60" cy="24" r="13"/>
+      <path d="M46 40 h28 l6 26 -4 30 -3 34 h-6 l-4 -30 h-6 l-4 30 h-6 l-3 -34 -4 -30 z"/>
+      <path d="M44 44 l-12 8 -6 34 6 4 10 -32 z"/>
+      <path d="M76 44 l12 8 6 34 -6 4 -10 -32 z"/>
+      <path d="M48 128 l-4 60 -2 66 h9 l4 -62 3 -46 z"/>
+      <path d="M72 128 l4 60 2 66 h-9 l-4 -62 -3 -46 z"/>
+    </g>
+    ${dots}
+  </svg>`;
+}
+
+async function fichaTabLesiones(panel, j, carga) {
+  const lesiones = (j.lesiones || []).slice().sort((a, b) => (b.fecha_lesion > a.fecha_lesion ? 1 : -1));
+  const activas = lesiones.filter(l => l.activa);
+  const total = lesiones.length;
+  const diasTotBaja = lesiones.reduce((s, l) => s + (l.dias_baja || 0), 0);
+  const diasSinLesion = calcDiasSinLesion(lesiones, activas);
+  const puedeRTS = esLesiones();
+
+  if (!total) {
+    panel.innerHTML = `<div class="card"><p class="muted">Este jugador no tiene lesiones registradas.</p></div>`;
+    return;
+  }
+
+  // historial por año
+  const porAnio = {};
+  lesiones.forEach(l => {
+    const y = (l.fecha_lesion || "").slice(0, 4);
+    if (y) porAnio[y] = (porAnio[y] || 0) + (l.dias_baja || 0);
+  });
+  const anios = Object.keys(porAnio).sort();
+
+  // tiempo de baja por lesion (top)
+  const porBaja = lesiones.slice().sort((a, b) => (b.dias_baja || 0) - (a.dias_baja || 0)).slice(0, 6);
+
+  // mapa de zonas
+  const porZona = {};
+  lesiones.forEach(l => { const z = (l.zona || "sin zona").toLowerCase(); porZona[z] = (porZona[z] || 0) + 1; });
+  const zonas = Object.entries(porZona).sort((a, b) => b[1] - a[1]);
+  const marcas = lesiones.map(l => ({ zona: l.zona, pos: zonaPos(l.zona, l.lado) }));
+
+  // factores de riesgo
+  const miInf = lesiones.filter(l => ZONAS_MI.some(z => (l.zona || "").toLowerCase().includes(z))).length;
+  const fHist = miInf >= 2 ? ["Alto", "rojo"] : miInf === 1 ? ["Moderado", "amarillo"] : ["Bajo", "verde"];
+  const fCarga = carga.zona === "adecuada" ? ["Adecuada", "verde"]
+    : carga.zona === "atencion" ? ["Atencion", "amarillo"] : ["Alta", "rojo"];
+  const fRec = diasSinLesion === null || diasSinLesion < 30 ? ["Alto", "rojo"]
+    : diasSinLesion < 90 ? ["Medio", "amarillo"] : ["Bajo", "verde"];
+
+  // recomendaciones
+  const recs = [];
+  activas.forEach(l => { if (l.criterios_proxima) recs.push(l.criterios_proxima); });
+  if (miInf >= 1) recs.push("Sostener el programa de fuerza excentrica del grupo muscular afectado.");
+  if (carga.zona !== "adecuada") recs.push("Controlar la progresion de carga en los entrenamientos de alta intensidad.");
+  recs.push("Reportar cualquier molestia temprana al cuerpo medico.");
+
+  panel.innerHTML = `
+    <div class="grid cols-2" style="align-items:start">
+      <div class="card">
+        <h3>Resumen de lesiones</h3>
+        <div style="display:flex;gap:22px;align-items:center">
+          <div style="text-align:center">
+            <div class="tnum" style="font-family:'Barlow Semi Condensed';font-weight:700;font-size:3rem;line-height:1;color:var(--accent)">${total}</div>
+            <div class="muted" style="font-size:.78rem">lesiones registradas</div>
+          </div>
+          <div style="flex:1">
+            <div class="risk-row"><span class="muted">Actualmente lesionado</span><b class="tnum">${activas.length}</b></div>
+            <div class="risk-row"><span class="muted">Dias sin lesion</span><b class="tnum">${diasSinLesion ?? "—"}</b></div>
+            <div class="risk-row"><span class="muted">Dias totales de baja</span><b class="tnum">${diasTotBaja}</b></div>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Historial temporal</h3>
+        <p class="card-sub">Dias de baja por año</p>
+        <div style="height:180px"><canvas id="ch-inj-anio"></canvas></div>
+      </div>
+    </div>
+
+    <div class="grid cols-2 section-gap" style="align-items:start">
+      <div class="card">
+        <h3>Detalle de lesiones</h3>
+        ${lesiones.map(l => `<div class="inj-row" data-lesion="${l.id}">
+          <span class="inj-ico">✚</span>
+          <div class="inj-main">
+            <div class="d0 tnum">${esc(l.fecha_lesion)}</div>
+            <div class="d1">${esc(l.diagnostico)}</div>
+            <div class="d0">${esc(l.zona || "—")}${l.lado ? " · " + esc(l.lado) : ""}</div>
+          </div>
+          <div class="inj-right">
+            <span class="chip ${esc(l.semaforo)}">${esc(l.estado_label)}</span>
+            <div class="dias muted" style="font-size:.8rem;margin-top:4px">${l.dias_baja ?? "—"} dias${puedeRTS ? " ›" : ""}</div>
+          </div>
+        </div>`).join("")}
+      </div>
+      <div class="card">
+        <h3>Mapa de lesiones</h3>
+        <div class="seg" id="map-toggle" style="margin-bottom:12px">
+          <button type="button" data-v="ant" class="on">Anterior</button>
+          <button type="button" data-v="post">Posterior</button>
+        </div>
+        <div class="bodymap">
+          <div id="body-svg">${siluetaSVG(marcas, "ant")}</div>
+          <div class="zone-legend">
+            ${zonas.map(([z, n]) => `<div><span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--rojo);margin-right:7px"></span>${esc(z)}</span><b class="tnum">${n} (${Math.round(n / total * 100)}%)</b></div>`).join("")}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid cols-2 section-gap" style="align-items:start">
+      <div class="card">
+        <h3>Tiempo de baja por lesion</h3>
+        <div style="height:${Math.max(140, porBaja.length * 34)}px"><canvas id="ch-inj-baja"></canvas></div>
+      </div>
+      <div class="card">
+        <h3>Factores de riesgo</h3>
+        <div class="risk-row"><span>Historial de lesiones en miembro inferior</span><span class="chip ${fHist[1]}">${fHist[0]}</span></div>
+        <div class="risk-row"><span>Carga semanal actual</span><span class="chip ${fCarga[1]}">${fCarga[0]}</span></div>
+        <div class="risk-row"><span>Riesgo por lesion reciente</span><span class="chip ${fRec[1]}">${fRec[0]}</span></div>
+      </div>
+    </div>
+
+    <div class="card section-gap">
+      <h3>Recomendaciones</h3>
+      <ul class="recs-list">${recs.map(r => `<li>${esc(r)}</li>`).join("")}</ul>
+    </div>`;
+
+  if (puedeRTS) {
+    panel.querySelectorAll("[data-lesion]").forEach(el =>
+      el.addEventListener("click", () => { location.hash = "#/lesion/" + el.dataset.lesion; }));
+  }
+
+  $("#map-toggle").addEventListener("click", e => {
+    const b = e.target.closest("button"); if (!b) return;
+    $("#map-toggle").querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b));
+    $("#body-svg").innerHTML = siluetaSVG(marcas, b.dataset.v);
+  });
+
+  chart("ch-inj-anio", {
+    type: "bar",
+    data: { labels: anios, datasets: [{ data: anios.map(a => porAnio[a]), backgroundColor: COL.accent, borderRadius: 3, maxBarThickness: 46 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      scales: { x: ejeSinGrilla, y: { ...ejeGrillaTenue, beginAtZero: true } },
+      plugins: { tooltip: { callbacks: { label: c => c.parsed.y + " dias" } } },
+    },
+  });
+
+  chart("ch-inj-baja", {
+    type: "bar",
+    data: {
+      labels: porBaja.map(l => l.diagnostico.length > 22 ? l.diagnostico.slice(0, 21) + "…" : l.diagnostico),
+      datasets: [{
+        data: porBaja.map(l => l.dias_baja || 0),
+        backgroundColor: porBaja.map(l => COL[l.semaforo] || COL.accent),
+        borderRadius: 3, maxBarThickness: 18,
+      }],
+    },
+    options: {
+      indexAxis: "y", responsive: true, maintainAspectRatio: false,
+      scales: { x: { ...ejeGrillaTenue, beginAtZero: true }, y: ejeSinGrilla },
+      plugins: { tooltip: { callbacks: { label: c => c.parsed.x + " dias de baja" } } },
+    },
+  });
 }
 
 /* ======================================================================

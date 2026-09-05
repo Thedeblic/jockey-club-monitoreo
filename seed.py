@@ -138,7 +138,29 @@ def main():
         )
         conn.commit()
         conn.close()
-    print("Lesiones creadas: 2 (con timeline de retorno)")
+
+    if not db.lesiones_de_jugador(ids[2]):
+        # Facundo Gomez: historial de 3 lesiones cerradas en 3 temporadas
+        historial_fg = [
+            (1200, "Molestia de aductores", "aductor", "izquierdo", "entrenamiento", "leve", 14),
+            (620, "Esguince de tobillo grado 2", "tobillo", "derecho", "partido", "moderada", 42),
+            (170, "Distension isquiotibial grado 1", "isquiotibiales", "derecho", "partido", "leve", 21),
+        ]
+        fechas = []
+        for dias_atras, dx, zona, lado, mec, grav, baja in historial_fg:
+            f0 = date.today() - timedelta(days=dias_atras)
+            lid = db.insertar_lesion(ids[2], f0.isoformat(), dx, zona, lado, mec, mec == "partido", grav, baja, "", autor=medico)
+            db.cambiar_estado_lesion(lid, "disponible_entrenar", autor=fisio)
+            db.cambiar_estado_lesion(lid, "disponible_competir", autor=medico)
+            db.cambiar_estado_lesion(lid, "alta", autor=medico)
+            fechas.append((lid, (f0 + timedelta(days=baja)).isoformat(), (f0 + timedelta(days=baja + 10)).isoformat()))
+        conn = db.get_conexion()
+        for lid, fdc, fa in fechas:
+            conn.execute("UPDATE lesiones SET fecha_disponible_competir = ?, fecha_alta = ? WHERE id = ?", (fdc, fa, lid))
+        conn.commit()
+        conn.close()
+
+    print("Lesiones creadas: 5 (con timeline de retorno)")
 
     # Hidratacion para Facundo Gomez
     if not db.hidratacion_de_jugador(ids[2]):
