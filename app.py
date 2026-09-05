@@ -6,7 +6,12 @@ from werkzeug.utils import secure_filename
 
 import database as db
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder="static", static_url_path="")
+
+
+@app.route("/")
+def index():
+    return app.send_static_file("index.html")
 
 # Carpeta donde se guardan las fotos de perfil (fuera de git)
 UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "uploads")

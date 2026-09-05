@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Jockey Club Handball · Monitoreo</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Semi+Condensed:wght@500;600;700&display=swap">
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+
+  <!-- Pantalla de login -->
+  <div id="login" hidden>
+    <div class="box">
+      <div class="brand">
+        <div class="shield"></div>
+        <div class="wm">Jockey Club<span>Handball</span></div>
+      </div>
+      <h2>Iniciar sesion</h2>
+      <p class="sub">Sistema de monitoreo de rendimiento</p>
+      <form id="login-form">
+        <div class="field">
+          <label for="li-email">Email</label>
+          <input id="li-email" type="email" autocomplete="username" required>
+        </div>
+        <div class="field">
+          <label for="li-pass">Contrasena</label>
+          <input id="li-pass" type="password" autocomplete="current-password" required>
+        </div>
+        <div id="login-error" class="notice err" hidden></div>
+        <button class="btn" type="submit">Entrar</button>
+      </form>
+      <p class="seed-hint" id="seed-hint" hidden></p>
+    </div>
+  </div>
+
+  <!-- App -->
+  <div id="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="shield"></div>
+        <div class="wm">Jockey Club<span>Handball</span></div>
+      </div>
+      <nav class="nav" id="nav">
+        <a href="#/inicio"      data-route="inicio">Inicio</a>
+        <a href="#/plantel"     data-route="plantel">Plantel</a>
+        <a href="#/carga"       data-route="carga">Carga</a>
+        <a href="#/bienestar"   data-route="bienestar">Bienestar</a>
+        <a href="#/hidratacion" data-route="hidratacion">Hidratacion</a>
+        <a href="#/registro"    data-route="registro">Registro de sesion</a>
+        <div class="sep"></div>
+        <a href="#/calendario"  data-route="calendario">Calendario</a>
+        <a href="#/informes"    data-route="informes">Informes</a>
+        <a href="#/config"      data-route="config">Configuracion</a>
+      </nav>
+      <div class="tagline">Trabajo<br>Datos<br>Evolucion<br>Equipo</div>
+    </aside>
+
+    <div class="main">
+      <header class="topbar">
+        <div class="crumbs" id="crumbs"></div>
+        <div class="who">
+          <span class="av" id="who-av">–</span>
+          <span id="who-name" class="muted"></span>
+          <button id="btn-logout" type="button">Salir</button>
+        </div>
+      </header>
+      <main class="view" id="view"></main>
+    </div>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/app.js"></script>
+</body>
+</html>
