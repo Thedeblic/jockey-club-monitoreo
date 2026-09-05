@@ -77,14 +77,14 @@ def main():
     for jid in ids:
         if db.sesiones_de_jugador(jid):
             continue
-        for d in range(21, 0, -1):
+        for d in range(35, 0, -1):
             if random.random() < 0.55:
                 fecha = (date.today() - timedelta(days=d)).isoformat()
                 dur = random.choice([60, 75, 90, 90, 100])
                 srpe = random.randint(3, 9)
                 db.insertar_sesion(jid, fecha, random.choice(tipos), dur, srpe, "")
                 total_ses += 1
-    print(f"Sesiones creadas: {total_ses}")
+    print(f"Sesiones creadas: {total_ses} (ultimos 35 dias)")
 
     # Lesiones (Mateo Torres activa, Ignacio Herrera recuperada)
     if not db.lesiones_de_jugador(ids[3]):

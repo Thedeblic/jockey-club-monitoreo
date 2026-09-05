@@ -9,6 +9,42 @@ const TIPOS_SESION = ["Entrenamiento", "Partido", "Gimnasio", "Recuperacion", "O
 
 const state = { perfil: null, jugadores: null };
 
+/* -------------------------------------------------------------- charts ---- */
+
+const COL = {
+  verde: "#2A9D8F", amarillo: "#E9C46A", naranja: "#F4A261", rojo: "#E63946",
+  line: "#2A2A2D", ink: "#9A9AA1", surface: "#1F1F22", accent: "#E63946",
+};
+
+if (window.Chart) {
+  Chart.defaults.color = COL.ink;
+  Chart.defaults.borderColor = COL.line;
+  Chart.defaults.font.family = "Barlow, system-ui, sans-serif";
+  Chart.defaults.plugins.legend.display = false;
+}
+
+let _charts = [];
+function destroyCharts() {
+  _charts.forEach(c => { try { c.destroy(); } catch (e) {} });
+  _charts = [];
+}
+function chart(canvasId, config) {
+  const el = document.getElementById(canvasId);
+  if (!el) return null;
+  const c = new Chart(el.getContext("2d"), config);
+  _charts.push(c);
+  return c;
+}
+function colorPorCarga(v, media) {
+  if (!v) return COL.surface;
+  if (v <= media) return COL.verde;
+  if (v <= media * 1.3) return COL.amarillo;
+  if (v <= media * 1.6) return COL.naranja;
+  return COL.rojo;
+}
+const ejeSinGrilla = { grid: { display: false }, border: { color: COL.line } };
+const ejeGrillaTenue = { grid: { color: COL.line }, border: { display: false } };
+
 const $ = (sel, root = document) => root.querySelector(sel);
 const view = () => $("#view");
 
@@ -108,9 +144,9 @@ async function onLogout() {
 const ROUTES = {
   inicio: screenInicio,
   plantel: screenPlantel,
+  carga: screenCarga,
   hidratacion: screenHidratacion,
   registro: screenRegistro,
-  carga: () => screenSoon("Carga del plantel", "Analisis de carga, tendencias y comparativa por posicion."),
   bienestar: () => screenSoon("Bienestar", "Cuestionario diario: sueno, fatiga, dolor muscular y estres."),
   calendario: () => screenSoon("Calendario", "Planificacion de entrenamientos, partidos y eventos."),
   informes: () => screenSoon("Informes", "Resumenes exportables por jugador y por plantel."),
@@ -118,6 +154,7 @@ const ROUTES = {
 };
 
 function router() {
+  destroyCharts();
   const route = (location.hash.replace("#/", "") || "inicio").split("/")[0];
   document.querySelectorAll("#nav a").forEach(a => {
     a.classList.toggle("active", a.dataset.route === route);
@@ -152,39 +189,109 @@ function screenSoon(titulo, sub) {
 
 async function screenInicio() {
   crumbs("Inicio");
-  const [js, lesiones] = await Promise.all([
+  const [js, lesiones, resumen] = await Promise.all([
     jugadores(),
     API.get("/lesiones?activas=1"),
+    API.get("/carga/resumen?dias=7"),
   ]);
   const lesionadosIds = new Set(lesiones.map(l => l.jugador_id));
   const total = js.length;
   const enAlerta = lesionadosIds.size;
   const disponibles = total - enAlerta;
   const pctDisp = total ? Math.round((disponibles / total) * 100) : 100;
-
+  const enRiesgo = resumen.por_jugador.filter(p => ["alta", "muy_alta"].includes(p.zona));
   const observar = js.filter(j => lesionadosIds.has(j.id));
 
   view().innerHTML = pageHead(`Hola, ${state.perfil.nombre}`, "Estado del plantel hoy") + `
     <div class="grid cols-4">
       ${kpi("Jugadores", total)}
       ${kpi("Disponibles", disponibles)}
-      ${kpi("En alerta", enAlerta, enAlerta ? "accent" : "")}
+      ${kpi("En alerta", enAlerta + enRiesgo.length, (enAlerta + enRiesgo.length) ? "accent" : "")}
       ${kpi("Disponibilidad", pctDisp + "%")}
     </div>
-    <div class="card section-gap">
-      <h3>Jugadores a observar</h3>
-      ${observar.length ? `<table class="table">
-        <tbody>${observar.map(j => `<tr>
-          <td class="num-col">${esc(j.numero_camiseta ?? "–")}</td>
-          <td><div class="cell-player">
-            <span class="avatar">${esc(iniciales(j.nombre, j.apellido).toUpperCase())}</span>
-            <div><div class="cp-name">${esc(nombreJugador(j))}</div>
-            <div class="cp-pos">${esc(j.posicion_principal || "")}</div></div>
-          </div></td>
-          <td style="text-align:right"><span class="chip rojo">Lesion activa</span></td>
-        </tr>`).join("")}</tbody>
-      </table>` : `<p class="muted">Sin alertas. Todo el plantel disponible.</p>`}
+    <div class="grid cols-2 section-gap" style="align-items:start">
+      <div class="card">
+        <h3>Carga del plantel · ultimos 7 dias</h3>
+        <p class="card-sub">Suma diaria en UA. La linea marca el promedio.</p>
+        <div style="height:230px"><canvas id="ch-carga7"></canvas></div>
+      </div>
+      <div class="card">
+        <h3>Jugadores a observar</h3>
+        ${filaObservar(observar, enRiesgo)}
+      </div>
     </div>`;
+
+  graficoCargaDiaria("ch-carga7", resumen.serie_diaria);
+}
+
+function filaObservar(lesionados, enRiesgo) {
+  const items = [
+    ...lesionados.map(j => ({
+      nombre: nombreJugador(j), sub: (j.posicion_principal || "") + " · lesion activa",
+      ini: iniciales(j.nombre, j.apellido), chip: "rojo", txt: "Lesion",
+    })),
+    ...enRiesgo.map(p => ({
+      nombre: p.nombre, sub: (p.posicion || "") + " · ACWR " + (p.acwr ?? "–"),
+      ini: p.nombre.split(" ").map(x => x[0]).join(""), chip: p.semaforo,
+      txt: p.zona === "muy_alta" ? "Carga muy alta" : "Carga alta",
+    })),
+  ];
+  if (!items.length) return `<p class="muted">Sin alertas. Todo el plantel en zona adecuada.</p>`;
+  return `<table class="table"><tbody>${items.map(it => `<tr>
+    <td><div class="cell-player">
+      <span class="avatar">${esc((it.ini || "").toUpperCase())}</span>
+      <div><div class="cp-name">${esc(it.nombre)}</div><div class="cp-pos">${esc(it.sub)}</div></div>
+    </div></td>
+    <td style="text-align:right"><span class="chip ${esc(it.chip)}">${esc(it.txt)}</span></td>
+  </tr>`).join("")}</tbody></table>`;
+}
+
+function graficoCargaDiaria(canvasId, serie, opts = {}) {
+  const valores = serie.map(d => d.carga);
+  const conCarga = valores.filter(v => v > 0);
+  const media = conCarga.length ? Math.round(conCarga.reduce((a, b) => a + b, 0) / conCarga.length) : 0;
+  const etiquetas = serie.map(d => {
+    const [, m, dd] = d.fecha.split("-");
+    return `${dd}/${m}`;
+  });
+  const datasets = [{
+    type: "bar",
+    label: "Carga",
+    data: valores,
+    backgroundColor: valores.map(v => colorPorCarga(v, media)),
+    borderRadius: 3,
+    maxBarThickness: opts.thin ? 14 : 40,
+    order: 2,
+  }];
+  if (media) {
+    datasets.push({
+      type: "line",
+      label: "Promedio",
+      data: valores.map(() => media),
+      borderColor: COL.ink,
+      borderDash: [4, 4],
+      borderWidth: 1,
+      pointRadius: 0,
+      order: 1,
+    });
+  }
+  chart(canvasId, {
+    data: { labels: etiquetas, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        x: { ...ejeSinGrilla, ticks: { maxRotation: 0, autoSkip: true } },
+        y: { ...ejeGrillaTenue, beginAtZero: true },
+      },
+      plugins: {
+        tooltip: {
+          filter: c => c.dataset.label === "Carga",
+          callbacks: { label: c => c.parsed.y + " UA" },
+        },
+      },
+    },
+  });
 }
 
 function kpi(label, value, cls = "") {
@@ -230,6 +337,126 @@ async function screenPlantel() {
 
   view().querySelectorAll("tr.clickable").forEach(tr => {
     tr.addEventListener("click", () => alert("La ficha del jugador llega en el proximo paso."));
+  });
+}
+
+/* ---- Carga del plantel ---- */
+
+let cargaDias = 7;
+
+async function screenCarga() {
+  destroyCharts();
+  crumbs("Carga", "Carga del plantel");
+  const r = await API.get("/carga/resumen?dias=" + cargaDias);
+  const d = r.distribucion;
+  const zonas = [
+    ["Adecuada", d.adecuada, COL.verde],
+    ["Atencion", d.atencion, COL.amarillo],
+    ["Alta", d.alta, COL.naranja],
+    ["Muy alta", d.muy_alta, COL.rojo],
+  ].filter(z => z[1] > 0);
+  const conDatos = r.por_jugador.length - d.sin_datos;
+
+  view().innerHTML = pageHead("Carga del plantel", "Carga interna del equipo · seguimiento y distribucion") + `
+    <div class="grid cols-3">
+      ${kpi(`Carga total · ${cargaDias} d`, r.totales.carga_total.toLocaleString("es") + " UA")}
+      ${kpi("Carga media / jugador", r.totales.carga_promedio.toLocaleString("es") + " UA")}
+      ${kpi("Sesiones", r.totales.sesiones)}
+    </div>
+
+    <div class="grid cols-2 section-gap" style="align-items:start">
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <h3 style="margin:0">Carga diaria del equipo</h3>
+          <div class="seg" id="seg-dias">
+            ${[7, 28].map(n => `<button type="button" data-n="${n}" class="${n === cargaDias ? "on" : ""}">${n} dias</button>`).join("")}
+          </div>
+        </div>
+        <div style="height:250px;margin-top:12px"><canvas id="ch-serie"></canvas></div>
+      </div>
+      <div class="card">
+        <h3>Distribucion por ACWR</h3>
+        <p class="card-sub">Ratio carga aguda (7 d) : cronica (28 d).</p>
+        <div style="display:flex;gap:20px;align-items:center">
+          <div style="position:relative;width:150px;height:150px;flex:0 0 auto">
+            <canvas id="ch-dist"></canvas>
+            <div style="position:absolute;inset:0;display:grid;place-items:center;text-align:center">
+              <div><div style="font-family:'Barlow Semi Condensed';font-weight:700;font-size:1.6rem;line-height:1">${conDatos}</div>
+              <div class="muted" style="font-size:.72rem">jugadores</div></div>
+            </div>
+          </div>
+          <div style="flex:1">
+            ${zonas.map(z => `<div style="display:flex;justify-content:space-between;padding:5px 0;font-size:.86rem">
+              <span><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${z[2]};margin-right:8px"></span>${z[0]}</span>
+              <b class="tnum">${z[1]}</b>
+            </div>`).join("")}
+            ${d.sin_datos ? `<div style="display:flex;justify-content:space-between;padding:5px 0;font-size:.86rem" class="muted">
+              <span><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${COL.surface};margin-right:8px"></span>Sin datos</span>
+              <b class="tnum">${d.sin_datos}</b></div>` : ""}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid cols-2 section-gap" style="align-items:start">
+      <div class="card">
+        <h3>Carga media por posicion · 7 dias</h3>
+        <div style="height:${Math.max(160, r.por_posicion.length * 42)}px;margin-top:10px"><canvas id="ch-pos"></canvas></div>
+      </div>
+      <div class="card">
+        <h3>Jugadores con mayor carga · 7 dias</h3>
+        <table class="table"><thead><tr><th>Jugador</th><th style="text-align:right">Carga</th><th style="text-align:right">ACWR</th><th style="text-align:right">Zona</th></tr></thead>
+        <tbody>${r.por_jugador.slice(0, 8).map(p => `<tr>
+          <td><div class="cell-player">
+            <span class="avatar">${esc(p.nombre.split(" ").map(x => x[0]).join("").toUpperCase())}</span>
+            <div><div class="cp-name">${esc(p.nombre)}</div><div class="cp-pos">${esc(p.posicion || "—")}</div></div>
+          </div></td>
+          <td style="text-align:right"><b class="tnum">${p.carga_7d.toLocaleString("es")}</b></td>
+          <td style="text-align:right" class="tnum">${p.acwr ?? "–"}</td>
+          <td style="text-align:right"><span class="chip ${esc(p.semaforo)}">${esc(p.zona.replace("_", " "))}</span></td>
+        </tr>`).join("")}</tbody></table>
+      </div>
+    </div>`;
+
+  graficoCargaDiaria("ch-serie", r.serie_diaria, { thin: cargaDias > 14 });
+
+  chart("ch-dist", {
+    type: "doughnut",
+    data: {
+      labels: zonas.map(z => z[0]).concat(d.sin_datos ? ["Sin datos"] : []),
+      datasets: [{
+        data: zonas.map(z => z[1]).concat(d.sin_datos ? [d.sin_datos] : []),
+        backgroundColor: zonas.map(z => z[2]).concat(d.sin_datos ? [COL.surface] : []),
+        borderWidth: 0,
+      }],
+    },
+    options: { responsive: true, maintainAspectRatio: false, cutout: "70%", plugins: { tooltip: { enabled: true } } },
+  });
+
+  chart("ch-pos", {
+    type: "bar",
+    data: {
+      labels: r.por_posicion.map(p => p.posicion),
+      datasets: [{
+        data: r.por_posicion.map(p => p.carga_promedio),
+        backgroundColor: COL.accent,
+        borderRadius: 3,
+        maxBarThickness: 18,
+      }],
+    },
+    options: {
+      indexAxis: "y",
+      responsive: true, maintainAspectRatio: false,
+      scales: { x: { ...ejeGrillaTenue, beginAtZero: true }, y: ejeSinGrilla },
+      plugins: { tooltip: { callbacks: { label: c => c.parsed.x + " UA" } } },
+    },
+  });
+
+  $("#seg-dias").addEventListener("click", e => {
+    const b = e.target.closest("button");
+    if (!b) return;
+    cargaDias = +b.dataset.n;
+    screenCarga();
   });
 }
 
@@ -368,8 +595,9 @@ async function screenHidratacion() {
         </form>
       </div>
       <div class="card">
-        <h3>Resultado / historial</h3>
+        <h3>Resultado</h3>
         <div id="hidra-out"><p class="muted">Cargá un registro y vas a ver acá la clasificacion, la reposicion recomendada y las indicaciones.</p></div>
+        <div id="hidra-hist" class="section-gap"></div>
       </div>
     </div>`;
 
@@ -442,18 +670,48 @@ function renderHidraResultado(r) {
 }
 
 async function cargarHistHidra(jid) {
-  if (!jid) return;
+  const box = $("#hidra-hist");
+  if (!box) return;
+  if (!jid) { box.innerHTML = ""; return; }
   const hist = await API.get("/hidratacion/" + jid);
-  if (hist.length <= 1) return;
+  if (!hist.length) { box.innerHTML = `<p class="muted">Sin registros previos de este jugador.</p>`; return; }
+
   const rows = hist.slice(0, 6).map(h => `<tr>
     <td class="tnum muted">${esc(h.fecha)}</td>
     <td class="muted">${esc(h.contexto)}</td>
     <td class="tnum">${h.deficit_kg} kg</td>
     <td style="text-align:right"><span class="chip ${esc(h.semaforo)}">${h.porcentaje_perdida}%</span></td>
   </tr>`).join("");
-  $("#hidra-out").insertAdjacentHTML("beforeend",
-    `<div class="section-gap"><h3 style="font-size:.95rem">Historial</h3>
-    <table class="table"><tbody>${rows}</tbody></table></div>`);
+
+  box.innerHTML = `<h3 style="font-size:.95rem">Historial · % de perdida</h3>
+    ${hist.length > 1 ? `<div style="height:150px;margin-bottom:10px"><canvas id="ch-hidra"></canvas></div>` : ""}
+    <table class="table"><tbody>${rows}</tbody></table>`;
+
+  if (hist.length > 1) {
+    const orden = hist.slice().reverse();
+    chart("ch-hidra", {
+      type: "line",
+      data: {
+        labels: orden.map(h => { const [, m, d] = h.fecha.split("-"); return `${d}/${m}`; }),
+        datasets: [{
+          data: orden.map(h => h.porcentaje_perdida),
+          borderColor: COL.accent,
+          backgroundColor: "transparent",
+          pointBackgroundColor: orden.map(h => COL[h.semaforo] || COL.ink),
+          pointRadius: 4,
+          tension: 0.3,
+        }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        scales: {
+          x: ejeSinGrilla,
+          y: { ...ejeGrillaTenue, beginAtZero: true, ticks: { callback: v => v + "%" } },
+        },
+        plugins: { tooltip: { callbacks: { label: c => c.parsed.y + "% perdido" } } },
+      },
+    });
+  }
 }
 
 /* -------------------------------------------------------------- arranque -- */

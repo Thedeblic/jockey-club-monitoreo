@@ -7,6 +7,8 @@ from werkzeug.utils import secure_filename
 import database as db
 
 app = Flask(__name__, static_folder="static", static_url_path="")
+# En desarrollo no cachear los archivos estaticos (asi los cambios se ven al recargar)
+app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
 
 
 @app.route("/")
@@ -204,6 +206,15 @@ def ruta_crear_sesion():
 @app.route("/api/sesiones/<int:jugador_id>", methods=["GET"])
 def ruta_sesiones_de_jugador(jugador_id):
     return jsonify(db.sesiones_de_jugador(jugador_id))
+
+
+@app.route("/api/carga/resumen", methods=["GET"])
+def ruta_resumen_carga():
+    try:
+        dias = int(request.args.get("dias", 7))
+    except (TypeError, ValueError):
+        dias = 7
+    return jsonify(db.resumen_carga(max(1, min(dias, 90))))
 
 
 # ---------------------------------------------------------------------------

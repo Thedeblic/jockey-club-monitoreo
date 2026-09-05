@@ -1,6 +1,6 @@
 import secrets
 import sqlite3
-from datetime import date
+from datetime import date, timedelta
 
 from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -301,6 +301,110 @@ def sesiones_de_jugador(jugador_id):
     filas = cursor.fetchall()
     conn.close()
     return [dict(fila) for fila in filas]
+
+
+# Zona segun ACWR = carga aguda (7 dias) / carga cronica (media semanal de 28 dias).
+# "Sweet spot" 0,80-1,30 (Gabbett). Umbrales editables: son criterio del CT.
+def _zona_acwr(acwr):
+    if acwr is None:
+        return "sin_datos", "gris"
+    if acwr < 0.80:
+        return "atencion", "amarillo"
+    if acwr <= 1.30:
+        return "adecuada", "verde"
+    if acwr <= 1.50:
+        return "alta", "naranja"
+    return "muy_alta", "rojo"
+
+
+def _suma_carga(conn, jugador_id, desde):
+    return conn.execute(
+        "SELECT COALESCE(SUM(carga_total), 0) FROM sesiones WHERE jugador_id = ? AND fecha >= ?",
+        (jugador_id, desde),
+    ).fetchone()[0]
+
+
+def resumen_carga(dias=7):
+    """Agregados de carga para los graficos del plantel."""
+    conn = get_conexion()
+    hoy = date.today()
+    desde_rango = (hoy - timedelta(days=dias - 1)).isoformat()
+    desde_7 = (hoy - timedelta(days=6)).isoformat()
+    desde_28 = (hoy - timedelta(days=27)).isoformat()
+
+    # serie diaria del equipo (rellena los dias sin sesiones con 0)
+    filas = conn.execute(
+        "SELECT fecha, SUM(carga_total) AS carga FROM sesiones WHERE fecha >= ? GROUP BY fecha",
+        (desde_rango,),
+    ).fetchall()
+    por_fecha = {f["fecha"]: f["carga"] or 0 for f in filas}
+    serie_diaria = [
+        {
+            "fecha": (hoy - timedelta(days=i)).isoformat(),
+            "carga": por_fecha.get((hoy - timedelta(days=i)).isoformat(), 0),
+        }
+        for i in range(dias - 1, -1, -1)
+    ]
+
+    jugadores_rows = conn.execute(
+        "SELECT id, nombre, apellido, posicion_principal "
+        "FROM usuarios WHERE rol = 'jugador' AND activo = 1"
+    ).fetchall()
+
+    por_jugador = []
+    distribucion = {"adecuada": 0, "atencion": 0, "alta": 0, "muy_alta": 0, "sin_datos": 0}
+    for j in jugadores_rows:
+        c7 = _suma_carga(conn, j["id"], desde_7)
+        c28 = _suma_carga(conn, j["id"], desde_28)
+        cronica = c28 / 4 if c28 else 0
+        acwr = round(c7 / cronica, 2) if cronica else None
+        zona, semaforo = _zona_acwr(acwr)
+        distribucion[zona] += 1
+        por_jugador.append(
+            {
+                "jugador_id": j["id"],
+                "nombre": f'{j["nombre"]} {j["apellido"]}'.strip(),
+                "posicion": j["posicion_principal"],
+                "carga_7d": c7,
+                "acwr": acwr,
+                "zona": zona,
+                "semaforo": semaforo,
+            }
+        )
+    por_jugador.sort(key=lambda x: x["carga_7d"], reverse=True)
+
+    pos_map = {}
+    for pj in por_jugador:
+        pos_map.setdefault(pj["posicion"] or "Sin posicion", []).append(pj["carga_7d"])
+    por_posicion = sorted(
+        (
+            {"posicion": p, "carga_promedio": round(sum(v) / len(v))}
+            for p, v in pos_map.items()
+        ),
+        key=lambda x: x["carga_promedio"],
+        reverse=True,
+    )
+
+    tot = conn.execute(
+        "SELECT COALESCE(SUM(carga_total), 0), COUNT(*) FROM sesiones WHERE fecha >= ?",
+        (desde_rango,),
+    ).fetchone()
+    con_datos = [pj["carga_7d"] for pj in por_jugador if pj["carga_7d"] > 0]
+    totales = {
+        "carga_total": tot[0],
+        "sesiones": tot[1],
+        "carga_promedio": round(sum(con_datos) / len(con_datos)) if con_datos else 0,
+    }
+
+    conn.close()
+    return {
+        "rango_dias": dias,
+        "serie_diaria": serie_diaria,
+        "totales": totales,
+        "por_jugador": por_jugador,
+        "por_posicion": por_posicion,
+        "distribucion": distribucion,
+    }
 
 
 # ---------------------------------------------------------------------------
