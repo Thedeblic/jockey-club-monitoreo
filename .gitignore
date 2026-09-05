@@ -9,6 +9,9 @@ env/
 # Base de datos local (SQLite)
 *.db
 
+# Archivos subidos por los usuarios (fotos de perfil, estudios)
+uploads/
+
 # Entorno / secretos
 .env
 

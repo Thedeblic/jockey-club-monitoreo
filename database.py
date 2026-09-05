@@ -1,7 +1,28 @@
+import secrets
 import sqlite3
 from datetime import date
 
+from werkzeug.security import check_password_hash, generate_password_hash
+
 DB_NAME = "jockey.db"
+
+# Puestos validos para el handball (posicion principal / secundaria)
+POSICIONES = ["Arquero", "Lateral", "Central", "Extremo", "Pivote"]
+
+# Roles dentro de la app
+ROLES = ["jugador", "cuerpo_tecnico"]
+
+# Campos del perfil que el propio usuario puede editar despues del registro
+CAMPOS_EDITABLES = [
+    "nombre",
+    "apellido",
+    "fecha_nacimiento",
+    "altura_cm",
+    "peso_kg",
+    "posicion_principal",
+    "posicion_secundaria",
+    "numero_camiseta",
+]
 
 
 def get_conexion():
@@ -15,12 +36,23 @@ def crear_tablas():
     cursor = conn.cursor()
 
     cursor.execute("""
-        CREATE TABLE IF NOT EXISTS jugadores (
+        CREATE TABLE IF NOT EXISTS usuarios (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            rol TEXT NOT NULL DEFAULT 'jugador',
             nombre TEXT NOT NULL,
+            apellido TEXT NOT NULL,
+            fecha_nacimiento TEXT,
+            altura_cm REAL,
+            peso_kg REAL,
+            posicion_principal TEXT,
+            posicion_secundaria TEXT,
             numero_camiseta INTEGER,
-            posicion TEXT,
-            activo INTEGER DEFAULT 1
+            foto TEXT,
+            activo INTEGER DEFAULT 1,
+            token TEXT,
+            creado_en TEXT DEFAULT (datetime('now'))
         )
     """)
 
@@ -34,7 +66,7 @@ def crear_tablas():
             srpe INTEGER NOT NULL,
             carga_total INTEGER,
             notas TEXT,
-            FOREIGN KEY (jugador_id) REFERENCES jugadores (id)
+            FOREIGN KEY (jugador_id) REFERENCES usuarios (id)
         )
     """)
 
@@ -52,7 +84,7 @@ def crear_tablas():
             dias_estimados INTEGER,
             fecha_alta TEXT,
             notas TEXT,
-            FOREIGN KEY (jugador_id) REFERENCES jugadores (id)
+            FOREIGN KEY (jugador_id) REFERENCES usuarios (id)
         )
     """)
 
@@ -60,12 +92,70 @@ def crear_tablas():
     conn.close()
 
 
-def insertar_jugador(nombre, numero_camiseta, posicion):
+# ---------------------------------------------------------------------------
+# Usuarios / autenticacion
+# ---------------------------------------------------------------------------
+
+
+def _edad(fecha_nacimiento):
+    if not fecha_nacimiento:
+        return None
+    nac = date.fromisoformat(fecha_nacimiento)
+    hoy = date.today()
+    return hoy.year - nac.year - ((hoy.month, hoy.day) < (nac.month, nac.day))
+
+
+def _armar_usuario(fila):
+    """Convierte una fila de 'usuarios' en dict, sin datos secretos y con la edad calculada."""
+    usuario = dict(fila)
+    usuario.pop("password_hash", None)
+    usuario.pop("token", None)
+    usuario["edad"] = _edad(usuario.get("fecha_nacimiento"))
+    return usuario
+
+
+def email_existe(email):
+    conn = get_conexion()
+    fila = conn.execute(
+        "SELECT 1 FROM usuarios WHERE email = ?", (email.lower(),)
+    ).fetchone()
+    conn.close()
+    return fila is not None
+
+
+def crear_usuario(
+    email,
+    password,
+    nombre,
+    apellido,
+    fecha_nacimiento=None,
+    altura_cm=None,
+    peso_kg=None,
+    posicion_principal=None,
+    posicion_secundaria=None,
+    numero_camiseta=None,
+    rol="jugador",
+):
     conn = get_conexion()
     cursor = conn.cursor()
     cursor.execute(
-        "INSERT INTO jugadores (nombre, numero_camiseta, posicion) VALUES (?, ?, ?)",
-        (nombre, numero_camiseta, posicion),
+        """INSERT INTO usuarios
+           (email, password_hash, rol, nombre, apellido, fecha_nacimiento,
+            altura_cm, peso_kg, posicion_principal, posicion_secundaria, numero_camiseta)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            email.lower(),
+            generate_password_hash(password),
+            rol,
+            nombre,
+            apellido,
+            fecha_nacimiento,
+            altura_cm,
+            peso_kg,
+            posicion_principal,
+            posicion_secundaria,
+            numero_camiseta,
+        ),
     )
     conn.commit()
     nuevo_id = cursor.lastrowid
@@ -73,22 +163,98 @@ def insertar_jugador(nombre, numero_camiseta, posicion):
     return nuevo_id
 
 
+def autenticar(email, password):
+    """Devuelve (usuario, token) si el login es valido, o (None, None) si no."""
+    conn = get_conexion()
+    fila = conn.execute(
+        "SELECT * FROM usuarios WHERE email = ?", (email.lower(),)
+    ).fetchone()
+
+    if fila is None or not check_password_hash(fila["password_hash"], password):
+        conn.close()
+        return None, None
+
+    token = secrets.token_hex(32)
+    conn.execute("UPDATE usuarios SET token = ? WHERE id = ?", (token, fila["id"]))
+    conn.commit()
+    conn.close()
+    return _armar_usuario(fila), token
+
+
+def usuario_por_token(token):
+    if not token:
+        return None
+    conn = get_conexion()
+    fila = conn.execute("SELECT * FROM usuarios WHERE token = ?", (token,)).fetchone()
+    conn.close()
+    return _armar_usuario(fila) if fila else None
+
+
+def cerrar_sesion(token):
+    conn = get_conexion()
+    conn.execute("UPDATE usuarios SET token = NULL WHERE token = ?", (token,))
+    conn.commit()
+    conn.close()
+
+
+def obtener_usuario(usuario_id):
+    conn = get_conexion()
+    fila = conn.execute("SELECT * FROM usuarios WHERE id = ?", (usuario_id,)).fetchone()
+    conn.close()
+    return _armar_usuario(fila) if fila else None
+
+
+def actualizar_perfil(usuario_id, datos):
+    """Actualiza solo los campos permitidos que vengan en 'datos'."""
+    cambios = {k: datos[k] for k in CAMPOS_EDITABLES if k in datos}
+    if not cambios:
+        return obtener_usuario(usuario_id)
+
+    asignaciones = ", ".join(f"{campo} = ?" for campo in cambios)
+    valores = list(cambios.values()) + [usuario_id]
+
+    conn = get_conexion()
+    conn.execute(f"UPDATE usuarios SET {asignaciones} WHERE id = ?", valores)
+    conn.commit()
+    conn.close()
+    return obtener_usuario(usuario_id)
+
+
+def set_foto(usuario_id, nombre_archivo):
+    conn = get_conexion()
+    conn.execute(
+        "UPDATE usuarios SET foto = ? WHERE id = ?", (nombre_archivo, usuario_id)
+    )
+    conn.commit()
+    conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Jugadores (usuarios con rol 'jugador')
+# ---------------------------------------------------------------------------
+
+
 def listar_jugadores():
     conn = get_conexion()
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM jugadores")
-    filas = cursor.fetchall()
+    filas = conn.execute(
+        "SELECT * FROM usuarios WHERE rol = 'jugador' AND activo = 1 ORDER BY apellido, nombre"
+    ).fetchall()
     conn.close()
-    return [dict(fila) for fila in filas]
+    return [_armar_usuario(fila) for fila in filas]
 
 
 def obtener_jugador(jugador_id):
     conn = get_conexion()
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM jugadores WHERE id = ?", (jugador_id,))
-    fila = cursor.fetchone()
+    fila = conn.execute(
+        "SELECT * FROM usuarios WHERE id = ? AND rol = 'jugador'", (jugador_id,)
+    ).fetchone()
     conn.close()
-    return dict(fila) if fila else None
+    return _armar_usuario(fila) if fila else None
+
+
+# ---------------------------------------------------------------------------
+# Sesiones de entrenamiento (carga)
+# ---------------------------------------------------------------------------
 
 
 def insertar_sesion(jugador_id, fecha, tipo, duracion_min, srpe, notas):
@@ -117,6 +283,11 @@ def sesiones_de_jugador(jugador_id):
     filas = cursor.fetchall()
     conn.close()
     return [dict(fila) for fila in filas]
+
+
+# ---------------------------------------------------------------------------
+# Lesiones
+# ---------------------------------------------------------------------------
 
 
 def _dias_entre(fecha_desde, fecha_hasta):
